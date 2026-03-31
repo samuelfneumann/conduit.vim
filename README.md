@@ -1,18 +1,28 @@
 # conduit.vim
 
-**Conduit** is a Vim 9 plugin that creates a high-speed "conduit" between your local Vim instance and remote SSH sessions. It allows you to treat a remote terminal as an extension of your local editor, enabling seamless file opening, background transfers, and shared state without leaving your terminal.
+**Conduit** is a Vim 9 plugin that creates a high-speed, multiplexed "conduit" between your local Vim instance and remote SSH sessions. It transforms your remote terminal into a first-class extension of your local editor.
 
-## Key Features
+Unlike other methods like mounting via SSHFS or using netrw directly, Conduit focuses on a **push-pull workflow** driven from the shell, while keeping all file operations and progress tracking integrated into your Vim UI.
 
-- **`lvim` Remote Command**: Open remote files in your local Vim instance with a single command from the SSH shell.
-- **Background Transfers**: `get` and `put` files between local and remote environments with real-time progress bars in Vim popup windows.
-- **SSH Multiplexing**: Automatically manages SSH ControlMaster sockets for lightning-fast subsequent connections.
-- **Fuzzy Uploads**: If you try to `put` a file that doesn't exist locally, Conduit will fuzzy search your local project and offer matches.
-- **Vim 9 Native**: Written entirely in Vim9script for performance and modern integration.
+## 🚀 Why Conduit?
 
-## Installation
+- **Zero-Latency Navigation**: You browse files in the remote shell (where it's fastest) and "teleport" them to your local Vim only when you need to edit.
+- **Background Operations**: Large file transfers happen in the background via `rsync` or `scp`. You can keep working while a progress bar in a Vim popup window shows the status.
+- **Multiplexed Speed**: It automatically manages SSH `ControlMaster` sockets. Your first connection might take a second; every subsequent file open or transfer is near-instant.
+- **No Configuration Overhead**: It deploys its own environment to the remote server on-the-fly. No need to install plugins or edit `.bashrc` on every server you touch.
 
-Using Vim 9's built-in package manager:
+## 🛠 How it Works (The "Conduit")
+
+1. **The Tunnel**: When you run `:ConduitOpen`, Vim starts a local listener (using `socat` or `python`) and establishes an SSH reverse tunnel that maps a remote Unix socket to your local listener.
+2. **The Injector**: Conduit generates a specialized shell script and uploads it to the remote `/tmp`. This script defines the `lvim` command.
+3. **The Signal**: When you type `lvim file.txt` on the server, it sends a small packet through the Unix socket.
+4. **The Action**: Your local Vim receives the signal and decides what to do:
+   - **Edit**: Opens the file using `scp://` using the *already open* SSH control socket for speed.
+   - **Transfer**: Spawns a background `rsync` or `scp` job and creates a `notifier.vim` popup to track progress.
+
+## 📦 Installation
+
+Requires **Vim 9.1+** with `+job`, `+popupwin`, and `+reltime`.
 
 ```bash
 mkdir -p ~/.vim/pack/plugins/start
@@ -20,72 +30,77 @@ cd ~/.vim/pack/plugins/start
 git clone https://github.com/youruser/conduit.vim.git
 ```
 
-Then, in Vim:
+Update your help tags:
 ```vim
 :helptags ~/.vim/pack/plugins/start/conduit.vim/doc
 ```
 
-## Dependencies & Requirements
+## 📋 Requirements
 
-### Local Requirements (Your Machine)
-- **Vim 9.1+** compiled with `+job`, `+channel`, `+popupwin`, and `+reltime`.
-- **SSH Client**: Standard OpenSSH client.
-- **Listener**: Either `socat` (recommended) or `python3`.
-- **Transfers**: `rsync` (recommended for progress/speed) or `scp`.
-- **Fuzzy Search**: `fd` (or `fdfind`) is recommended for fast local file lookups, otherwise `find` is used.
+| Feature | Local (Your Machine) | Remote (The Server) |
+| :--- | :--- | :--- |
+| **Core** | Vim 9.1+, OpenSSH | `bash` or `zsh` |
+| **Tunnel** | `socat` or `python3` | `socat` or `python3` |
+| **Transfer** | `rsync` (faster) or `scp` | `rsync` or `scp` |
+| **Fuzzy** | `fd` or `find` | N/A |
 
-### Remote Requirements (The Server)
-- **Shell**: `bash` or `zsh`.
-- **Communication**: Either `socat` or `python3` (used by `lvim` to talk back to Vim).
-- **Transfers**: `rsync` or `scp`.
-- **SSH Configuration**: The server's `sshd_config` must allow Unix domain socket forwarding (this is usually the default, but requires `AllowStreamLocalForwarding yes` if it was disabled).
+> **Note**: Your SSH server must allow Unix socket forwarding (default in OpenSSH). If you hit issues, ensure `AllowStreamLocalForwarding yes` is in the remote `/etc/ssh/sshd_config`.
 
-## Quick Start
+## 📖 Deep Dive: Usage
 
-1. **Connect**: Run `:ConduitOpen user@remote-host` in Vim.
-2. **Edit**: In the resulting terminal, type `lvim path/to/file.txt`. The file opens in your local Vim.
-3. **Fetch (Remote -> Local)**: Type `lvim get remote_file.txt` to copy a file from the server to your local machine.
-4. **Send (Local -> Remote)**: Type `lvim put local_file.txt` to copy a file from your local machine to the server.
+### The `lvim` command
 
-### Example Usage
+The `lvim` function is injected into your remote shell automatically.
 
 ```bash
-# Run ":ConduitOpen HOST" in vim
+# Basic editing
+$ lvim file.txt           # Opens in a horizontal split (default)
+$ lvim vsplit file.txt    # Opens in a vertical split
+$ lvim tabe file.txt      # Opens in a new tab
 
-# Open a file in a vertical split
-$ lvim vsplit config.yaml
+# Bulk operations
+$ lvim *.py               # Opens all matching files locally
 
-# Send a script from your local machine to the server and run it
-$ lvim put ~/scripts/deploy.sh
-$ ./deploy.sh
-
-# Fetch a log file from the server to your local machine for analysis
-$ lvim get /var/log/nginx/error.log
+# File Transfers
+$ lvim get log.txt        # "Fetch": Remote -> Local CWD
+$ lvim put script.sh      # "Send":  Local -> Remote CWD
 ```
 
-## Vim Aliasing
+### Advanced Fuzzy Uploads (`put`)
 
-By default (`g:conduit_overwrite_vim = 1`), Conduit transparently aliases the `vim` command on the remote host to `lvim`. 
+If you run `lvim put my-local-file.txt` but that file isn't in your local directory, Conduit will:
+1. Fuzzy search your local project (up to `g:conduit_put_max_depth`).
+2. If one match is found, it uploads it immediately.
+3. If multiple matches are found, it opens a menu in Vim for you to choose which one(s) to send.
 
-When you run `:ConduitOpen HOST`, Conduit generates a temporary shell script on the remote server. This script:
-1. Defines the `lvim` function.
-2. Sets up the environment for the reverse tunnel.
-3. Adds `alias vim=lvim` to your current shell session.
-4. Adds `alias _vim="/usr/bin/env vim"` so you can still access the "real" Vim on the server if needed.
+## ⚙️ Advanced Configuration
 
-This alias only exists within the shell session opened by Conduit and does not modify your remote `.bashrc` or `.zshrc`. 
-
-## Configuration
-
+### Customizing the Remote Shell
+If you use a non-standard shell path on certain hosts:
 ```vim
-" Set the default split mode (split, vsplit, tabe)
-let g:conduit_default_split = 'vsplit'
-
-" Use popup menus for fuzzy file selection
-let g:conduit_use_popup = 1
-
-" Disable aliasing 'vim' to 'lvim' on the remote
-let g:conduit_overwrite_vim = 0
+g:conduit_host2shell = {
+    \ 'production-server': '/usr/local/bin/zsh',
+    \ 'legacy-box': '/bin/sh'
+\ }
 ```
 
-See `:help conduit` for full documentation.
+### Multiplexing Persistence
+Control how long the SSH master socket stays open in the background:
+```vim
+let g:conduit_default_control_persist = '4h'
+```
+
+### Notifier Styling
+```vim
+let g:notifier_maxwidth = 60
+let g:notifier_wrap = 0 " Truncate long messages with ... or … if has('multi_byte')
+```
+
+## 🔍 Troubleshooting
+
+- **"Connection Refused" on `lvim`**: Usually means the SSH reverse tunnel failed to bind. Check if a stale socket exists in `/tmp/.vim-conduit-...` on the remote. Conduit tries to clean these up, but a hard crash might leave them behind. Try running `ConduitExit HOST` to close the Ssh ControlMaster.
+- **No Progress Bars**: Ensure you have `rsync` installed locally. While `scp` works, it provides less granular progress information to Vim.
+- **Netrw Errors**: Conduit uses Vim's built-in `netrw` for the actual editing. If you have `let g:loaded_netrwPlugin = 1` in your config, Conduit's edit functionality **will** break.
+
+---
+*See `:help conduit` for the full manual.*
