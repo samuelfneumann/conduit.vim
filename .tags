@@ -1,0 +1,111 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_OUTPUT_EXCMD	mixed	/number, pattern, mixed, or combineV2/
+!_TAG_OUTPUT_FILESEP	slash	/slash or backslash/
+!_TAG_OUTPUT_MODE	u-ctags	/u-ctags or e-ctags/
+!_TAG_PATTERN_LENGTH_LIMIT	96	/0 for no limit/
+!_TAG_PROC_CWD	/home/samuel/Documents/Dotfiles/Vim/vim/pack/plugins/start/conduit.vim/	//
+!_TAG_PROGRAM_AUTHOR	Universal Ctags Team	//
+!_TAG_PROGRAM_NAME	Universal Ctags	/Derived from Exuberant Ctags/
+!_TAG_PROGRAM_URL	https://ctags.io/	/official site/
+!_TAG_PROGRAM_VERSION	5.9.0	//
+AddTermByBufNr	./autoload/conduit.vim	/^	def AddTermByBufNr(bufnr: number)$/;"	f
+AnimateSpinner	./autoload/notifier.vim	/^def AnimateSpinner(winid: number, timer_id: number)$/;"	f
+ApplyHighlight	./autoload/notifier.vim	/^def ApplyHighlight(winid: number, text: string)$/;"	f
+Conduit	./plugin/conduit.vim	/^command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitCompl  Conduit conduit.ConduitC/;"	c
+ConduitClosed	./autoload/conduit.vim	/^	def ConduitClosed(): bool$/;"	f
+ConduitCopySource	./plugin/conduit.vim	/^command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitCopySource conduit/;"	c
+ConduitDeploy	./plugin/conduit.vim	/^command! -bar -nargs=+ -complete=customlist,conduit.ConduitHostCompl ConduitDeploy conduit.Condu/;"	c
+ConduitDisconnect	./plugin/conduit.vim	/^command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitDisconnect conduit/;"	c
+ConduitExit	./plugin/conduit.vim	/^command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitExit conduit.Condu/;"	c
+ConduitNotifications	./plugin/conduit.vim	/^command! -bar ConduitNotifications conduit.ShowHistory()$/;"	c
+ConduitOpen	./autoload/conduit.vim	/^	def ConduitOpen(): bool$/;"	f
+ConduitOpen	./plugin/conduit.vim	/^command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitHostCompl ConduitOpen conduit.C/;"	c
+ConduitShell	./autoload/conduit.vim	/^	def ConduitShell(): string$/;"	f
+ConduitStopGet	./plugin/conduit.vim	/^command! -bar -nargs=+ ConduitStopGet conduit.ConduitStopCmd("get", <f-args>)$/;"	c
+ConduitStopPut	./plugin/conduit.vim	/^command! -bar -nargs=+ ConduitStopPut conduit.ConduitStopCmd("put", <f-args>)$/;"	c
+ConduitUpdateNetrwControlPath	./autoload/conduit.vim	/^				augroup ConduitUpdateNetrwControlPath$/;"	a
+Configuration	./README.md	/^## Configuration$/;"	s	chapter:conduit.vim
+ConnectedTerms	./autoload/conduit.vim	/^	def ConnectedTerms(): number$/;"	f
+Dependencies & Requirements	./README.md	/^## Dependencies & Requirements$/;"	s	chapter:conduit.vim
+DeployRcfile	./autoload/conduit.vim	/^def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void): job$/;"	f
+Disconnect	./autoload/conduit.vim	/^	def Disconnect()$/;"	f
+EnsureListener	./autoload/conduit.vim	/^def EnsureListener(conn: Connection): bool$/;"	f
+Example Usage	./README.md	/^### Example Usage$/;"	S	section:conduit.vim""Quick Start
+ExtractConduitConfig	./autoload/conduit.vim	/^def ExtractConduitConfig(path: string = '~\/.ssh\/config'): list<string>$/;"	f
+FilteredMenu	./autoload/conduit.vim	/^def FilteredMenu(items: list<string>, OnSelect: func(string))$/;"	f
+FormatMsg	./autoload/notifier.vim	/^def FormatMsg(msg: string, include_ellipsis: bool): string$/;"	f
+GetConduitControlPath	./autoload/conduit.vim	/^	def GetConduitControlPath(): string$/;"	f
+GetConduitControlPersist	./autoload/conduit.vim	/^	def GetConduitControlPersist(): string$/;"	f
+GetConnectionsDictKey	./autoload/conduit.vim	/^def GetConnectionsDictKey(conn: Connection): string$/;"	f
+GetConnectionsDictKeyFrom	./autoload/conduit.vim	/^def GetConnectionsDictKeyFrom(host: string, port: number): string$/;"	f
+GetCurrentCmd	./autoload/conduit.vim	/^def GetCurrentCmd(CmdLine: string, CursorPos: number): string$/;"	f
+GetLocalReverseTunnelSocketPath	./autoload/conduit.vim	/^	def GetLocalReverseTunnelSocketPath(): string$/;"	f
+GetPortStringOption	./autoload/conduit.vim	/^def GetPortStringOption(conn: Connection, scp: bool=false): string$/;"	f
+GetRemoteRCPath	./autoload/conduit.vim	/^	def GetRemoteRCPath(): string$/;"	f
+GetRemoteReverseTunnelSocketPath	./autoload/conduit.vim	/^	def GetRemoteReverseTunnelSocketPath(): string$/;"	f
+GetTermJobs	./autoload/conduit.vim	/^	def GetTermJobs(): list<job>$/;"	f
+InitProp	./autoload/notifier.vim	/^def InitProp(name: string, hl_group: string)$/;"	f
+Installation	./README.md	/^## Installation$/;"	s	chapter:conduit.vim
+IsManuallyControlledMultiplexing	./autoload/conduit.vim	/^	def IsManuallyControlledMultiplexing(): bool$/;"	f
+Key Features	./README.md	/^## Key Features$/;"	s	chapter:conduit.vim
+Local Requirements (Your Machine)	./README.md	/^### Local Requirements (Your Machine)$/;"	S	section:conduit.vim""Dependencies & Requirements
+MakeAnchoredFuzzy	./autoload/conduit.vim	/^def MakeAnchoredFuzzy(input: string): string$/;"	f
+MaybeAddEmptyConnection	./autoload/conduit.vim	/^def MaybeAddEmptyConnection(host: string, port: number): Connection$/;"	f
+MultiChoicePrompt	./autoload/conduit.vim	/^def MultiChoicePrompt(items: list<string>, OnSelect: func(string), header: string="")$/;"	f
+OnLine	./autoload/conduit.vim	/^def OnLine(conn: Connection, line: string)$/;"	f
+OnPopupClose	./autoload/notifier.vim	/^def OnPopupClose(winid: number, result: any)$/;"	f
+OpenConduitControlMaster	./autoload/conduit.vim	/^def OpenConduitControlMaster(conn: Connection): number$/;"	f
+OpenFile	./autoload/conduit.vim	/^def OpenFile(conn: Connection, op: string, remote_path: string)$/;"	f
+ParseRsync	./autoload/conduit.vim	/^def ParseRsync(msg: string): tuple<string, number, string>$/;"	f
+ParseScp	./autoload/conduit.vim	/^def ParseScp(msg: string): tuple<string, number, string>$/;"	f
+Quick Start	./README.md	/^## Quick Start$/;"	s	chapter:conduit.vim
+Refresh	./autoload/conduit.vim	/^    def Refresh(winid: number)$/;"	f
+Remote Requirements (The Server)	./README.md	/^### Remote Requirements (The Server)$/;"	S	section:conduit.vim""Dependencies & Requirements
+RemoveTermByBufNr	./autoload/conduit.vim	/^	def RemoveTermByBufNr(bufnr: number)$/;"	f
+RsyncFile	./autoload/conduit.vim	/^def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: string)$/;"	f
+SetJob	./autoload/conduit.vim	/^	def SetJob(job: job)$/;"	f
+SetListenerJob	./autoload/conduit.vim	/^	def SetListenerJob(job: job)$/;"	f
+SetSockNotReady	./autoload/conduit.vim	/^	def SetSockNotReady()$/;"	f
+SetSockReady	./autoload/conduit.vim	/^	def SetSockReady()$/;"	f
+SshOpen	./plugin/conduit.vim	/^augroup SshOpen$/;"	a
+ToTitleCase	./autoload/conduit.vim	/^def ToTitleCase(input: string): string$/;"	f
+UpdateHighlights	./autoload/conduit.vim	/^    def UpdateHighlights(winid: number)$/;"	f
+UpdatePositions	./autoload/notifier.vim	/^def UpdatePositions()$/;"	f
+Vim Aliasing	./README.md	/^## Vim Aliasing$/;"	s	chapter:conduit.vim
+Warn	./autoload/conduit.vim	/^def Warn(msg: string)$/;"	f
+active	./autoload/conduit.vim	/^			const active = !empty(ConduitActiveComplHelper(prefix .. ' ' .. host, ArgLead))$/;"	C
+all_ops	./autoload/conduit.vim	/^const all_ops = [$/;"	C
+cmd	./autoload/conduit.vim	/^				const cmd = [$/;"	C
+cmd	./autoload/conduit.vim	/^	const cmd = args[0]$/;"	C
+cmd	./autoload/conduit.vim	/^	const cmd = len(parts) > 1 ? parts[1] : ""$/;"	C
+conduit.vim	./README.md	/^# conduit.vim$/;"	c
+conn	./autoload/conduit.vim	/^		const conn = connections[host]$/;"	C
+control_master_error	./autoload/conduit.vim	/^				const control_master_error = v:shell_error$/;"	C
+current_cmd	./autoload/conduit.vim	/^    const current_cmd = GetCurrentCmd(CmdLine, CursorPos)$/;"	C
+host	./autoload/conduit.vim	/^				const host = len(parts) >= 3 ? parts[2] : "" # Fixed index: parts[2] is the host$/;"	C
+host	./autoload/conduit.vim	/^			const host = len(parts) >= 4 ? parts[3] : ""$/;"	C
+job_success	./autoload/conduit.vim	/^						const job_success = (code == 0)$/;"	C
+local_sock	./autoload/conduit.vim	/^		const local_sock = c.GetLocalReverseTunnelSocketPath()$/;"	C
+notif	./autoload/conduit.vim	/^		const notif = notifier.StartLoading($"Disconnecting from {host}")$/;"	C
+op	./autoload/conduit.vim	/^		const op = ops[i]$/;"	C
+op_type	./autoload/conduit.vim	/^			const op_type = parts[2]$/;"	C
+open_control_master_err_code	./autoload/conduit.vim	/^			const open_control_master_err_code = OpenConduitControlMaster(conn)$/;"	C
+open_file_ops	./autoload/conduit.vim	/^const open_file_ops = [$/;"	C
+parts	./autoload/conduit.vim	/^    const parts = split(current_cmd)$/;"	C
+pbar_width	./autoload/notifier.vim	/^const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth \/ 3))])])$/;"	C
+port_opt	./autoload/conduit.vim	/^			const port_opt = GetPortStringOption(c)$/;"	C
+prefix	./autoload/conduit.vim	/^				const prefix = "Conduit" .. ToTitleCase(cmd)$/;"	C
+prefix	./autoload/conduit.vim	/^			const prefix = "Conduit" .. ToTitleCase(cmd)$/;"	C
+prefix	./autoload/conduit.vim	/^	const prefix = deploy_only ? "ConduitDeploy" : "ConduitOpen"$/;"	C
+q	./autoload/notifier.vim	/^    nnoremap <buffer> <silent> q :bwipeout<CR>$/;"	m
+remote_cleanup_error	./autoload/conduit.vim	/^				const remote_cleanup_error = v:shell_error$/;"	C
+remote_rc	./autoload/conduit.vim	/^			const remote_rc = c.GetRemoteRCPath()$/;"	C
+remote_sock	./autoload/conduit.vim	/^			const remote_sock = c.GetRemoteReverseTunnelSocketPath()$/;"	C
+search_over:	./autoload/conduit.vim	/^				const search_over: list<string> = [op.local_file, op.remote_file]$/;"	C
+source_cmd	./autoload/conduit.vim	/^		const source_cmd = $"source {conn.GetRemoteRCPath()}"$/;"	C
+success	./autoload/conduit.vim	/^			const success = MaybeCleanup(conn, false, true)$/;"	C
+term_bufnr	./autoload/conduit.vim	/^					const term_bufnr = term_start($/;"	C
+term_job	./autoload/conduit.vim	/^				const term_job = term_getjob(conn.term_bufnr[bufnr])$/;"	C
+tunnel	./autoload/conduit.vim	/^					const tunnel  = remote_sock .. ':' .. sock_path$/;"	C
+tunnel	./autoload/conduit.vim	/^			const tunnel = remote_sock .. ':' .. local_sock$/;"	C

@@ -1,0 +1,144 @@
+*conduit.txt*  Remote file editing and SSH integration for Vim 9
+
+                                 CONDUIT.VIM                                 *conduit*
+
+Conduit.vim provides seamless integration between your local Vim instance and
+remote SSH sessions. It allows you to open files from a remote shell directly
+in your local Vim, and perform background file transfers (get/put) with
+progress notifications.
+
+NOTE: This plugin requires Vim 9.1 or later with +job and +popupwin.
+
+==============================================================================
+1. Usage                                                    *conduit-usage*
+
+To start using conduit, use the |:ConduitOpen| command to connect to a remote
+host:
+>
+    :ConduitOpen user@example.com
+<
+This will open a terminal window running an SSH session. Within this session,
+a special `lvim` command is available.
+
+In the remote shell:
+- `lvim file.txt` opens "file.txt" in your local Vim using netrw.
+- `lvim split file.txt` opens it in a horizontal split.
+- `lvim put file.txt` uploads the remote "file.txt" to your local CWD.
+- `lvim get local_file.txt` downloads a local file to the remote CWD.
+
+If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
+`_vim` to run the actual vim binary on the remote host.
+
+==============================================================================
+2. Commands                                                 *conduit-commands*
+
+:Conduit {args}                                             *:Conduit*
+        General command interface for Conduit operations.
+
+:ConduitOpen {host}                                         *:ConduitOpen*
+        Open a new conduit session to {host}. This sets up the reverse tunnel
+        and remote environment. {host} can include user and port, e.g.,
+        `user@host:2222`.
+
+:ConduitDeploy {host}                                       *:ConduitDeploy*
+        Deploy the conduit environment to {host} without opening a terminal.
+        Useful if you already have an SSH session open elsewhere and want to
+        enable `lvim` there. It prints a `source ...` command that you should
+        run in your remote shell.
+
+:ConduitExit {host}                                         *:ConduitExit*
+        Cleanly close the conduit session for {host}, removing remote
+        temporary files and closing the reverse tunnel.
+
+:ConduitDisconnect {host}                                   *:ConduitDisconnect*
+        Forcefully disconnect from {host}.
+
+:ConduitCopySource {host}                                   *:ConduitCopySource*
+        Copy the `source` command for the remote conduit RC file to the
+        system clipboard.
+
+:ConduitNotifications                                       *:ConduitNotifications*
+        Show a history of conduit notifications in a scratch buffer.
+
+:ConduitStopGet {host} [{pattern}]                          *:ConduitStopGet*
+        Stop ongoing 'get' transfers for {host}. Optional {pattern} filters
+        by filename.
+
+:ConduitStopPut {host} [{pattern}]                          *:ConduitStopPut*
+        Stop ongoing 'put' transfers for {host}.
+
+==============================================================================
+3. Configuration                                            *conduit-config*
+
+g:conduit_default_split                                     *g:conduit_default_split*
+        Default split mode when `lvim` is called without an operation.
+        Default: "split"
+
+g:conduit_overwrite_vim                                     *g:conduit_overwrite_vim*
+        If true, aliases `vim` to `lvim` in the remote shell.
+        Default: true
+
+g:conduit_use_popup                                         *g:conduit_use_popup*
+        If true, uses popup menus for file selection (e.g., when `lvim put`
+        has multiple fuzzy matches).
+        Default: false
+
+g:conduit_put_max_depth                                     *g:conduit_put_max_depth*
+        Maximum depth for fuzzy searching local files during `lvim put`.
+        Default: 5
+
+g:conduit_verbose                                           *g:conduit_verbose*
+        Enable verbose logging of conduit operations.
+        Default: false
+
+g:conduit_sep                                               *g:conduit_sep*
+        Separator used for internal communication.
+        Default: ":::"
+
+g:conduit_fallback_shell                                    *g:conduit_fallback_shell*
+        Shell to use on the remote host if not specified in
+        `g:conduit_host2shell`.
+        Default: "bash"
+
+g:conduit_host2shell                                        *g:conduit_host2shell*
+        Dictionary mapping hostnames to remote shell paths.
+        Default: {}
+
+g:conduit_default_control_persist                           *g:conduit_default_control_persist*
+        Default SSH ControlPersist value for manually managed multiplexing.
+        Default: "60m"
+
+==============================================================================
+4. Remote Command (lvim)                                    *conduit-lvim*
+
+The `lvim` command is injected into the remote shell. It supports the
+following syntax:
+
+`lvim [op] {file...}`
+
+Operations:
+- edit, split, vsplit, tabe: Open file(s) in local Vim.
+- put {remote} [{local}]: Upload {remote} to local {local}.
+- get {local} [{remote}]: Download local {local} to remote {remote}.
+
+If no operation is provided, |g:conduit_default_split| is used.
+
+For `put`, if the local path is not found, conduit will attempt a fuzzy
+search in the local CWD up to |g:conduit_put_max_depth|.
+
+==============================================================================
+5. Notifications                                            *conduit-notifications*
+
+Conduit uses a built-in notifier (based on popup windows) to show progress for
+file transfers and status updates.
+
+g:notifier_maxwidth                                         *g:notifier_maxwidth*
+        Maximum width of notification popups.
+        Default: &columns / 2
+
+g:notifier_wrap                                             *g:notifier_wrap*
+        Whether to wrap text in notifications.
+        Default: true
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:
