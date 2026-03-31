@@ -1,6 +1,12 @@
 # conduit.vim
 
-**Conduit** is a Vim 9 plugin that creates a high-speed, multiplexed "conduit" between your local Vim instance and remote SSH sessions. It transforms your remote terminal into a first-class extension of your local editor.
+**Conduit** is a Vim 9 plugin that creates a high-speed, multiplexed SSH "conduit" between your local Vim instance and remote SSH sessions. It transforms your remote SSH connection in the Vim terminal into a first-class extension of your local editor. Run `vim FILE` on the remote server and watch the file magically open in your local Vim instance.
+
+The tl;dr:
+* Open Vim on your local machine.
+* Run `:ConduitOpen HOST`. A Vim terminal opens up with an SSH connection to `HOST`.
+* Run `vim file` in the spawned Vim terminal and watch as the file on the remote SSH server magically open in your local vim instance.
+* Save the file with `:w` and watch as your local changes magically transfer to the SSH server.
 
 Unlike other methods like mounting via SSHFS or using netrw directly, Conduit focuses on a **push-pull workflow** driven from the shell, while keeping all file operations and progress tracking integrated into your Vim UI.
 
