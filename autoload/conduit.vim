@@ -973,7 +973,7 @@ enddef
 export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: string)
 	const prefix = deploy_only ? "ConduitDeploy" : "ConduitOpen"
 
-	var notif = notifier.StartLoading($"{prefix}: connecting")
+	var notif = notifier.StartLoading($"Connecting")
     # redraw!
 
     if empty(args) || args !~ '^\S\+\(\s\+-p\s\+\d\+\)\?$'
