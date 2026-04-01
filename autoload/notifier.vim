@@ -5,12 +5,30 @@ g:notifier_maxwidth = &columns / 2
 g:notifier_wrap = true
 const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth / 3))])])
 
+var checkmark: string = has('multi_byte') ? '✓' : '='
+var xmark: string = has('multi_byte') ? '×' : 'x'
+var right_arrow: string = has('multi_byte') ? '→' : '->'
+var pbar_filled: string = has('multi_byte') ? '█' : '#'
+var pbar_empty: string = has('multi_byte') ? '▒' : '-'
+
+var border_chars_default: list<string> = has('multi_byte')
+    ? ['─', '│', '─', '│', '╭', '╮', '╯', '╰']
+    : ['-', '|', '-', '|', '+', '+', '+', '+']
+var border_chars: list<string> = get(
+	g:, 'conduit_borderchars', border_chars_default
+)
+
 export var position: string = "top-right"
 
 var active_notifs: list<number> = []
 
 # Spinner State Tracking
-var spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+var spinner_frames: list<string>
+if has('multi_byte')
+	spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+else
+	spinner_frames = ['/', '-', '\', '|']
+endif
 var active_spinners: dict<number> = {} 
 var spinner_msgs: dict<string> = {}    
 var spinner_idxs: dict<number> = {}    
@@ -66,8 +84,10 @@ def ApplyHighlight(winid: number, text: string)
     # Clear any existing highlights on the first line
     prop_clear(1, 1, {bufnr: bufnr})
 
-    # Find the FIRST occurrence of any of the target symbols
-    var match_info = matchstrpos(text, '[✓×!?→]')
+    # Find the FIRST occurrence of any of the target symbols.
+    # In ASCII mode, we are more restrictive to avoid highlighting characters in words.
+    var pattern = has('multi_byte') ? '[✓×!?→]' : '\v%(^|[ ])\zs(\=|x|!|\?|-\>)\ze%([ ]|$)'
+    var match_info = matchstrpos(text, pattern)
     var start_byte = match_info[1]
     var end_byte = match_info[2]
 
@@ -79,15 +99,15 @@ def ApplyHighlight(winid: number, text: string)
     var matched_char = match_info[0]
     var prop_type = ""
 
-    if matched_char ==# "✓"
+    if matched_char ==# checkmark
         prop_type = "notify_success"
-    elseif matched_char ==# "×"
+    elseif matched_char ==# xmark
         prop_type = "notify_error"
     elseif matched_char ==# "!"
         prop_type = "notify_warning"
     elseif matched_char ==# "?"
         prop_type = "notify_info"
-    elseif matched_char ==# "→"
+    elseif matched_char ==# right_arrow
         prop_type = "notify_right_arrow"
     endif
 
@@ -206,7 +226,7 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
 		maxwidth: !empty(g:notifier_maxwidth) ? g:notifier_maxwidth : &columns,
         highlight: 'Normal',
         padding: [0, 1, 0, 1],
-        borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
+        borderchars: border_chars,
         border: [1, 1, 1, 1, 1, 1, 1, 1],
         tabpage: -1,
         zindex: 100,
@@ -308,7 +328,7 @@ export def UpdateLoading(winid: number, new_msg: string)
 enddef
 
 export def StartProgress(msg: string, opts: dict<any> = {}): number
-    var empty_bar = repeat('▒', pbar_width)
+    var empty_bar = repeat(pbar_empty, pbar_width)
     
     var progress_opts = {persistent: true}
     extend(progress_opts, opts)
@@ -322,11 +342,11 @@ export def UpdateProgress(winid: number, current: number, total: number, msg: st
     if percentage < 0.0 | percentage = 0.0 | endif
     
 	# We use trunc instead of round so that the bar is only completely filled
-	# once we reach 100%. With round, we will fill the bar when we are ≥95%
+	# once we reach 100%. With round, we will fill the bar when we are >= 95%
 	# complete
     var filled_len = float2nr(trunc(percentage * pbar_width))
     var empty_len = pbar_width - filled_len
-    var bar = repeat('█', filled_len) .. repeat('▒', empty_len)
+    var bar = repeat(pbar_filled, filled_len) .. repeat(pbar_empty, empty_len)
     
     var full_msg = bar
     if msg != "" | full_msg ..= "  " .. msg | endif

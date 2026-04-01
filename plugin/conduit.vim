@@ -1,7 +1,11 @@
 vim9script
 
 # ── Global Configuration & Defaults ──────────────────────────────────────────
-
+ 
+var border_chars: list<string> = has('multi_byte')
+    ? ['─', '│', '─', '│', '╭', '╮', '╯', '╰']
+    : ['-', '|', '-', '|', '+', '+', '+', '+']
+g:conduit_borderchars = get(g:, 'conduit_borderchars', border_chars)
 g:conduit_put_max_depth = get(g:, 'conduit_put_max_depth', 5)
 g:conduit_use_popup = get(g:, 'conduit_use_popup', false)
 g:conduit_sep = get(g:, 'conduit_sep', ":::")
@@ -11,6 +15,9 @@ g:conduit_overwrite_vim = get(g:, 'conduit_overwrite_vim', true)
 g:conduit_fallback_shell = get(g:, 'conduit_fallback_shell', "bash")
 g:conduit_host2shell = get(g:, 'conduit_host2shell', {})
 g:conduit_default_control_persist = get(g:, 'conduit_default_control_persist', "60m")
+g:conduit_borderchars = get(g:, 'conduit_borderchars', has('multi_byte')
+    ? ['─', '│', '─', '│', '╭', '╮', '╯', '╰']
+    : ['-', '|', '-', '|', '+', '+', '+', '+'])
 
 g:conduit_put_ops = []
 g:conduit_get_ops = []

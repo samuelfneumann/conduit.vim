@@ -108,6 +108,12 @@ g:conduit_default_control_persist                           *g:conduit_default_c
         Default SSH ControlPersist value for manually managed multiplexing.
         Default: "60m"
 
+g:conduit_borderchars                                       *g:conduit_borderchars*
+        List of 8 characters for popup borders.
+        Default: Unicode if `+multi_byte`, otherwise ASCII fallbacks.
+        `['─', '│', '─', '│', '╭', '╮', '╯', '╰']` (Unicode)
+        `['-', '|', '-', '|', '+', '+', '+', '+']` (ASCII)
+
 ==============================================================================
 4. Remote Command (lvim)                                    *conduit-lvim*
 
@@ -130,7 +136,9 @@ search in the local CWD up to |g:conduit_put_max_depth|.
 5. Notifications                                            *conduit-notifications*
 
 Conduit uses a built-in notifier (based on popup windows) to show progress for
-file transfers and status updates.
+file transfers and status updates. If `+multi_byte` is enabled, it uses
+fancy Unicode symbols (✓, ×, →, etc.); otherwise, it falls back to
+ASCII equivalents (=, x, ->, etc.).
 
 g:notifier_maxwidth                                         *g:notifier_maxwidth*
         Maximum width of notification popups.
@@ -139,6 +147,8 @@ g:notifier_maxwidth                                         *g:notifier_maxwidth
 g:notifier_wrap                                             *g:notifier_wrap*
         Whether to wrap text in notifications.
         Default: true
+
+They automatically adapt to `+multi_byte` support.
 
 ==============================================================================
  vim:tw=78:ts=8:ft=help:norl:

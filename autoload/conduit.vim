@@ -850,21 +850,15 @@ def FilteredMenu(items: list<string>, OnSelect: func(string))
     popup_menu(filtered_list, {
         title: ' Conduit(put): ',
         filter: MyFilter,
-        # --- POSITIONING AT CURSOR ---
-        pos: 'botleft',      # Opens above the cursor (change to 'topleft' for below)
-        line: 'cursor-1',    # One line above the current cursor line
-        col: 'cursor',       # At the current cursor column
-        # -----------------------------
+        pos: 'botleft',
+        line: 'cursor-1',
+        col: 'cursor',
         padding: [0, 1, 0, 1],
-        borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
+        borderchars: g:conduit_borderchars,
         border: [1, 1, 1, 1, 1, 1, 1, 1],
         width: &columns - 10,
-        # minwidth: &columns - 10,
-        # maxwidth: &columns - 10,
         maxheight: 10,
         scrollbar: true,
-        # callback: (winid, result) => {
-        # },
     })
 enddef
 
