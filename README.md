@@ -1,14 +1,14 @@
 # conduit.vim
 
-**Conduit** is a Vim 9 plugin that creates a high-speed, multiplexed SSH "conduit" between your local Vim instance and remote SSH sessions. It transforms your remote SSH connection in the Vim terminal into a first-class extension of your local editor. Run `vim FILE` on the remote server and watch the file magically open in your local Vim instance.
+**Conduit** is a Vim 9 plugin that creates a high-speed, multiplexed SSH "conduit" between your local Vim instance and remote SSH sessions. It transforms your remote SSH connection in the Vim terminal into a first-class extension of your local Vim instance. Run `vim FILE` on the remote SSH server and watch the file magically open in your local Vim instance.
 
-The tl;dr:
+**Quick Start**:
 * Open Vim on your local machine.
 * Run `:ConduitOpen HOST`. A Vim terminal opens up with an SSH connection to `HOST`.
 * Run `vim file` in the spawned Vim terminal and watch as the file on the remote SSH server magically open in your local vim instance.
 * Save the file with `:w` and watch as your local changes magically transfer to the SSH server.
 
-Unlike other methods like mounting via SSHFS or using netrw directly, Conduit focuses on a **push-pull workflow** driven from the shell, while keeping all file operations and progress tracking integrated into your Vim UI.
+Unlike other methods like mounting via SSHFS or using netrw directly, Conduit focuses on a **push-pull, shell-driven workflow**, while keeping all file operations and progress tracking integrated into your Vim UI.
 
 ## 🚀 Why Conduit?
 
@@ -24,7 +24,7 @@ Unlike other methods like mounting via SSHFS or using netrw directly, Conduit fo
 3. **The Signal**: When you type `lvim file.txt` on the server, it sends a small packet through the Unix socket.
 4. **The Action**: Your local Vim receives the signal and decides what to do:
    - **Edit**: Opens the file using `scp://` using the *already open* SSH control socket for speed.
-   - **Transfer**: Spawns a background `rsync` or `scp` job and creates a `notifier.vim` popup to track progress.
+   - **Transfer**: Spawns a background `rsync` or `scp` job and creates a popup to track progress.
 
 ## 📦 Installation
 
@@ -104,7 +104,7 @@ let g:notifier_wrap = 0 " Truncate long messages with ... or … if has('multi_b
 
 ## 🔍 Troubleshooting
 
-- **"Connection Refused" on `lvim`**: Usually means the SSH reverse tunnel failed to bind. Check if a stale socket exists in `/tmp/.vim-conduit-...` on the remote. Conduit tries to clean these up, but a hard crash might leave them behind. Try running `ConduitExit HOST` to close the Ssh ControlMaster.
+- **"Connection Refused" on `lvim`**: Usually means the SSH reverse tunnel failed to bind. Check if a stale socket exists in `/tmp/.vim-conduit-...` on the remote. Conduit tries to clean these up, but a hard crash might leave them behind. Try running `ConduitExit HOST` to close the SSH ControlMaster.
 - **No Progress Bars**: Ensure you have `rsync` installed locally. While `scp` works, it provides less granular progress information to Vim.
 - **Netrw Errors**: Conduit uses Vim's built-in `netrw` for the actual editing. If you have `let g:loaded_netrwPlugin = 1` in your config, Conduit's edit functionality **will** break.
 
