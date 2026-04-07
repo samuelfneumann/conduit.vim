@@ -108,6 +108,13 @@ g:conduit_default_control_persist                           *g:conduit_default_c
         Default SSH ControlPersist value for manually managed multiplexing.
         Default: "60m"
 
+g:conduit_host2sshoptions				    *g:conduit_host2sshoptions*
+        Dictionary mapping hostnames to custom flags for interactive ssh
+	sessions to those hosts. Flags are passed directly to the ssh command
+	without validation. Use with caution; invalid or unsafe options may
+	cause sessions to fail or behave unexpectedly.
+        Default: {}
+
 g:conduit_borderchars                                       *g:conduit_borderchars*
         List of 8 characters for popup borders.
         Default: Unicode if `+multi_byte`, otherwise ASCII fallbacks.
