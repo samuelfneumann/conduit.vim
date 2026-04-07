@@ -815,7 +815,7 @@ def FilteredMenu(items: list<string>, OnSelect: func(string))
         if key == "\<Esc>"
             popup_close(winid, -1)
             return true
-        elseif key == "\<CR>"
+        elseif key == "\<CR>" || key == "\<C-y>"
             var choice = (cur_line > 0 && cur_line <= last_line) ? filtered_list[cur_line - 1] : ""
 			OnSelect(expand(choice))
             return true
