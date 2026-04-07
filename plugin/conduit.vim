@@ -37,10 +37,10 @@ command! -bar -nargs=+ ConduitStopGet conduit.ConduitStopCmd("get", <f-args>)
 command! -bar -nargs=+ ConduitStopPut conduit.ConduitStopCmd("put", <f-args>)
 
 # ── Lifecycle & Integration ──────────────────────────────────────────────────
-augroup SshOpen
+augroup ConduitOpen
     autocmd!
     autocmd VimLeave * conduit.MaybeCleanup(conduit.Connection.null_connection, true, true)
-    autocmd BufReadCmd conduit://* call conduit.SshOpenCmd(false, true, '', bufname("%")[len("conduit://") : ])
+    autocmd BufReadCmd conduit://* call conduit.ConduitOpenCmd(false, true, '', bufname("%")[len("conduit://") : ])
 augroup END
 
 export def g:ConduitStatus(): string
