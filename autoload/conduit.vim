@@ -1068,7 +1068,8 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 
 					notifier.UpdateLoading(notif, $"Opening ssh reverse tunnel")
 					redraw
-					var ssh_cmd = $'ssh -t -S {conn.GetConduitControlPath()} '
+					const options = get(g:conduit_host2sshoptions, host, [])->join(' ')
+					var ssh_cmd = $'ssh {options} -t -S {conn.GetConduitControlPath()} '
 								.. '-o StreamLocalBindUnlink=yes -o ExitOnForwardFailure=yes -R ' .. tunnel .. ' '
 								.. conn.host
 								.. $' {conn.ConduitShell()} --rcfile ' .. remote_rc .. ' -i'
