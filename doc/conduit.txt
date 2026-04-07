@@ -23,8 +23,8 @@ a special `lvim` command is available.
 In the remote shell:
 - `lvim file.txt` opens "file.txt" in your local Vim using netrw.
 - `lvim split file.txt` opens it in a horizontal split.
-- `lvim put file.txt` uploads the remote "file.txt" to your local CWD.
-- `lvim get local_file.txt` downloads a local file to the remote CWD.
+- `lvim put file.txt` uploads a local "file.txt" to your remote CWD.
+- `lvim get local_file.txt` downloads a remote file.
 
 If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 `_vim` to run the actual vim binary on the remote host.
@@ -120,12 +120,12 @@ g:conduit_borderchars                                       *g:conduit_bordercha
 The `lvim` command is injected into the remote shell. It supports the
 following syntax:
 
-`lvim [op] {file...}`
+`lvim [op] {args...}`
 
 Operations:
-- edit, split, vsplit, tabe: Open file(s) in local Vim.
-- put {remote} [{local}]: Upload {remote} to local {local}.
-- get {local} [{remote}]: Download local {local} to remote {remote}.
+- edit, split, vsplit, tabe: Open {args...} file(s) in local Vim.
+- put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}.
+- get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}.
 
 If no operation is provided, |g:conduit_default_split| is used.
 
