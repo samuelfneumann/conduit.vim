@@ -874,6 +874,7 @@ def MultiChoicePrompt(items: list<string>, OnSelect: func(string), header: strin
 	echon "\n"
     for i in range(len(items))
         # Using echon and \n to be more explicit about line breaks
+        echon $'{i + 1}: '
 		if getftype(items[i]) ==# "file"
 			echohl File
 		elseif getftype(items[i]) ==# "dir"
@@ -882,7 +883,7 @@ def MultiChoicePrompt(items: list<string>, OnSelect: func(string), header: strin
 			echohl Normal
 		endif
 
-        echon $'{i + 1}: {items[i]}'
+        echon items[i]
 		echohl clear
 		echon "\n"
     endfor
