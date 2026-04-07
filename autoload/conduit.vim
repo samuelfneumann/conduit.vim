@@ -936,7 +936,7 @@ def MakeAnchoredFuzzy(input: string): string
     for seg in segments
         if empty(seg) | continue | endif
         # For each segment, allow any char EXCEPT a slash between letters
-        var fuzzy_seg = seg->split('')->join('[^/]*')
+        var fuzzy_seg = seg->split('\zs')->join('[^/]*')
         add(regex_segments, fuzzy_seg)
     endfor
 
