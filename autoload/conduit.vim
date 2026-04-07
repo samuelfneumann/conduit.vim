@@ -382,7 +382,8 @@ def OnLine(conn: Connection, line: string)
 						matches,
 						(selected) => {
 							RsyncFile(conn, false, remote_file, selected)
-						}
+						},
+						"Select Files to Upload"
 					)
 				else
 					MultiChoicePrompt(
@@ -778,7 +779,7 @@ enddef
 
 # ── UI & User Interaction ────────────────────────────────────────────────────
 
-def FilteredMenu(items: list<string>, OnSelect: func(string))
+def FilteredMenu(items: list<string>, OnSelect: func(string), header: string="")
     var search_str = ''
     var filtered_list = items
 
@@ -848,7 +849,7 @@ def FilteredMenu(items: list<string>, OnSelect: func(string))
     }
 
     popup_menu(filtered_list, {
-        title: ' Conduit(put): ',
+        title: $' {header} ',
         filter: MyFilter,
         pos: 'botleft',
         line: 'cursor-1',
