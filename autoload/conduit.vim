@@ -10,13 +10,17 @@ export class Connection
 
 	var host: string
 	var port: number
+	var profile_key: string
+	var ssh_options: list<string>
 	var listener_job: job
 	var sock_ready: bool
 	var term_bufnr: dict<number> # Set of connected terms
 
-	def new(host: string, port: number, listener_job: job, sock_ready: bool)
+	def new(host: string, port: number, listener_job: job, sock_ready: bool, ssh_options: list<string> = [])
 		this.host = host
 		this.port = port
+		this.ssh_options = copy(ssh_options)
+		this.profile_key = GetConnectionsDictKeyFrom(host, port, this.ssh_options)
 		this.listener_job = listener_job 
 		this.sock_ready = sock_ready
 		this.term_bufnr = {}
@@ -30,8 +34,16 @@ export class Connection
 		return get(Connection.host2shell, this.host, Connection.fallback_shell)
 	enddef
 
+	def GetSshOptions(): list<string>
+		return copy(this.ssh_options)
+	enddef
+
+	def GetProfileKey(): string
+		return this.profile_key
+	enddef
+
 	def ConduitOpen(): bool
-		system($'ssh -O check -S {this.GetConduitControlPath()} {this.host}')
+		system(GetSshCommandString(this, ['-O', 'check', '-S', this.GetConduitControlPath()]))
 		return v:shell_error == 0
 	enddef
 
@@ -40,8 +52,7 @@ export class Connection
 	enddef
 
 	def IsManuallyControlledMultiplexing(): bool
-		const port = GetPortStringOption(this)
-		for line in systemlist($'ssh -G {this.host} {port} | grep controlpath')
+		for line in systemlist(GetSshCommandString(this, ['-G']))
 			if line =~ '^controlpath ' | return false | endif
 		endfor
 
@@ -54,9 +65,7 @@ export class Connection
 		if !this.IsManuallyControlledMultiplexing()
 			# If there is an ssh config file to use, check if there is a
 			# control persist setting specified there
-			const port = GetPortStringOption(this)
-
-			for line in systemlist($'ssh -G {this.host} {port} | grep controlpersist')
+			for line in systemlist(GetSshCommandString(this, ['-G']))
 				if line =~ '^controlpersist '
 					return line[len('controlpersist ') : ] 
 				endif
@@ -69,28 +78,10 @@ export class Connection
 	enddef
 
 	def GetConduitControlPath(): string
-		const default = $'/tmp/.vim-conduit-connection-{this.host}.sock'
-
-		if !this.IsManuallyControlledMultiplexing()
-			# If there is an ssh config file to use, check if there is a
-			# control path specified there
-			const port = GetPortStringOption(this)
-
-			for line in systemlist($'ssh -G {this.host} {port} | grep controlpath')
-				if line =~ '^controlpath '
-					return line[len('controlpath ') : ] 
-				endif
-			endfor
-
-			# No control path specified in ssh config, use default
-			return default
-		endif
-
-		# No ssh config, use fallback
 		if this.port > 0
-			return $'/tmp/.vim-conduit-connection-{this.host}-{this.port}.sock'
+			return $'/tmp/.vim-conduit-connection-{this.host}-{this.port}{GetProfileSuffix(this.ssh_options)}.sock'
 		endif
-		return default
+		return $'/tmp/.vim-conduit-connection-{this.host}{GetProfileSuffix(this.ssh_options)}.sock'
 	enddef
 
 	def Disconnect()
@@ -168,23 +159,23 @@ export class Connection
 
 	def GetLocalReverseTunnelSocketPath(): string
 		if this.port > 0
-			return $'/tmp/.vim-conduit-{getpid()}-{this.host}p{this.port}.sock'
+			return $'/tmp/.vim-conduit-{getpid()}-{this.host}p{this.port}{GetProfileSuffix(this.ssh_options)}.sock'
 		endif
-		return $'/tmp/.vim-conduit-{getpid()}-{this.host}.sock'
+		return $'/tmp/.vim-conduit-{getpid()}-{this.host}{GetProfileSuffix(this.ssh_options)}.sock'
 	enddef
 
 	def GetRemoteReverseTunnelSocketPath(): string
 		if this.port > 0
-			return $'/tmp/.vim-conduit-{getpid()}-{this.host}p{this.port}.sock'
+			return $'/tmp/.vim-conduit-{getpid()}-{this.host}p{this.port}{GetProfileSuffix(this.ssh_options)}.sock'
 		endif
-		return $'/tmp/.vim-conduit-{getpid()}-{this.host}.sock'
+		return $'/tmp/.vim-conduit-{getpid()}-{this.host}{GetProfileSuffix(this.ssh_options)}.sock'
 	enddef
 
 	def GetRemoteRCPath(): string
 		if this.port > 0
-			return $'/tmp/.vim-conduit-rc-{getpid()}-{this.host}p{this.port}.sh'
+			return $'/tmp/.vim-conduit-rc-{getpid()}-{this.host}p{this.port}{GetProfileSuffix(this.ssh_options)}.sh'
 		endif
-		return $'/tmp/.vim-conduit-rc-{getpid()}-{this.host}.sh'
+		return $'/tmp/.vim-conduit-rc-{getpid()}-{this.host}{GetProfileSuffix(this.ssh_options)}.sh'
 	enddef
 endclass
 
@@ -195,19 +186,19 @@ endenum
 
 export class Op
 	var type: OpType
-	var host: string
+	var conn_key: string
 	var port: number
 	var job: job
 	var local_file: string
 	var remote_file: string
 
 	static def From(type: OpType, conn: Connection, j: job, local_file: string, remote_file: string): Op
-		return Op.new(type, conn.host, conn.port, j, local_file, remote_file)
+		return Op.new(type, conn.GetProfileKey(), conn.port, j, local_file, remote_file)
 	enddef
 
-	def new(type: OpType, host: string, port: number, j: job, local_file: string, remote_file: string)
+	def new(type: OpType, conn_key: string, port: number, j: job, local_file: string, remote_file: string)
 		this.type = type
-		this.host = host
+		this.conn_key = conn_key
 		this.port = port
 		this.job = j
 		this.local_file = local_file
@@ -221,30 +212,186 @@ endclass
 
 # ── Connection & State Management ────────────────────────────────────────────
 
-# Stores hostname:port -> Connections
+# Stores profile key -> Connections
 var connections: dict<Connection> = {}
 
 def GetConnectionsDictKey(conn: Connection): string
-	return GetConnectionsDictKeyFrom(conn.host, conn.port)
+	return conn.GetProfileKey()
 enddef
 
-def GetConnectionsDictKeyFrom(host: string, port: number): string
-	if port > 0
-		return $'{host}:{port}'
+def GetEffectiveSshOptions(host: string, ssh_options: list<string>): list<string>
+	var options = copy(get(g:conduit_host2sshoptions, host, []))
+	if !empty(ssh_options)
+		options->extend(ssh_options)
 	endif
-	return host
+	return options
 enddef
 
-def MaybeAddEmptyConnection(host: string, port: number): Connection
-	const key = GetConnectionsDictKeyFrom(host, port)
+def GetProfileSuffix(ssh_options: list<string>): string
+	if empty(ssh_options)
+		return ''
+	endif
+
+	const digest = sha256(join(ssh_options, "\x1f"))
+	return $'-{digest[: 11]}'
+enddef
+
+def GetConnectionsDictKeyFrom(host: string, port: number, ssh_options: list<string> = []): string
+	const suffix = GetProfileSuffix(ssh_options)
+	if port > 0
+		return $'{host}:{port}{suffix}'
+	endif
+	return $'{host}{suffix}'
+enddef
+
+def MaybeAddEmptyConnection(host: string, port: number, ssh_options: list<string> = []): Connection
+	const effective_ssh_options = GetEffectiveSshOptions(host, ssh_options)
+	const key = GetConnectionsDictKeyFrom(host, port, effective_ssh_options)
 
 	if has_key(connections, key)
+		const conn = connections[key]
 		return connections[key]
 	endif
 
-	const conn = Connection.new(host, port, null_job, false)
+	const conn = Connection.new(host, port, null_job, false, effective_ssh_options)
 	connections[key] = conn
 	return conn
+enddef
+
+def ShellJoin(args: list<string>): string
+	var quoted: list<string> = []
+	for arg in args
+		quoted->add(shellescape(arg))
+	endfor
+	return quoted->join(' ')
+enddef
+
+def GetPortArgs(conn: Connection, scp: bool = false): list<string>
+	if conn.port > 0
+		return [scp ? '-P' : '-p', string(conn.port)]
+	endif
+	return []
+enddef
+
+def GetSshArgs(conn: Connection): list<string>
+	var args = ['ssh']
+	args->extend(conn.GetSshOptions())
+	args->extend(GetPortArgs(conn))
+	return args
+enddef
+
+def GetScpArgs(conn: Connection): list<string>
+	var args: list<string> = []
+	args->extend(conn.GetSshOptions())
+	args->extend(GetPortArgs(conn, true))
+	return args
+enddef
+
+def GetSshCommandArgs(conn: Connection, head_args: list<string>, tail_args: list<string> = []): list<string>
+	var args = GetSshArgs(conn)
+	args->extend(head_args)
+	args->add(conn.host)
+	args->extend(tail_args)
+	return args
+enddef
+
+def GetSshCommandString(conn: Connection, head_args: list<string>, tail_args: list<string> = []): string
+	return ShellJoin(GetSshCommandArgs(conn, head_args, tail_args))
+enddef
+
+const ssh_opts_with_value = [
+	'B', 'b', 'c', 'D', 'E', 'F', 'I', 'i', 'J', 'l', 'L', 'm', 'O', 'o',
+	'p', 'Q', 'R', 'S', 'W', 'w',
+]
+
+def ParseConduitOpenArgs(args: string): dict<any>
+	var tokens = split(args)
+	if empty(tokens)
+		throw 'missing host'
+	endif
+
+	var ssh_options: list<string> = []
+	var idx = 0
+	while idx < len(tokens) && tokens[idx] =~# '^++'
+		var token = tokens[idx][2 : ]
+		if empty(token)
+			throw 'invalid ssh option'
+		endif
+
+		if token =~# '^--'
+			idx += 1
+			break
+		endif
+
+		const eq_idx = stridx(token, '=')
+		if eq_idx >= 0
+			const flag = token[: eq_idx - 1]
+			const val = token[eq_idx + 1 : ]
+			if empty(flag) || empty(val)
+				throw 'invalid ssh option'
+			endif
+			ssh_options->extend([$'-{flag}', val])
+			idx += 1
+			continue
+		endif
+
+		if index(ssh_opts_with_value, token) >= 0
+			if idx + 1 >= len(tokens)
+				throw $'ssh option ++{token} requires a value'
+			endif
+			ssh_options->extend([$'-{token}', tokens[idx + 1]])
+			idx += 2
+			continue
+		endif
+
+		ssh_options->add($'-{token}')
+		idx += 1
+	endwhile
+
+	if idx >= len(tokens)
+		throw 'missing host'
+	endif
+
+	var host = tokens[idx]
+	var port = -1
+	if host =~ ':'
+		const host_parts = host->split(':')
+		port = str2nr(host_parts[1])
+		host = host_parts[0]
+	endif
+
+	if port == 0
+		throw 'invalid port'
+	endif
+
+	return {
+		host: host,
+		port: port,
+		ssh_options: ssh_options,
+	}
+enddef
+
+def ResolveConnectionKey(name: string): string
+	if has_key(connections, name)
+		return name
+	endif
+
+	var matches: list<string> = []
+	for [key, conn] in items(connections)
+		if conn.host ==# name || stridx(key, name) == 0
+			matches->add(key)
+		endif
+	endfor
+
+	if len(matches) == 1
+		return matches[0]
+	endif
+
+	if len(matches) > 1
+		Warn($'Ambiguous connection "{name}"; use the completed profile key instead')
+	endif
+
+	return ''
 enddef
 
 def GetPortStringOption(conn: Connection, scp: bool=false): string
@@ -428,38 +575,35 @@ def OpenFile(conn: Connection, op: string, remote_path: string)
 
 	if g:conduit_verbose | echom $"Conduit(vim/{op}):" op target | endif
 
-    try
-		if conn.IsManuallyControlledMultiplexing()
-			# The user does not have an ssh config entry for the current host,
-			# or else the user does have this entry but doesn't specify to use
-			# multiplexing there. So, we manage the multiplexing manually,
-			# which requires a bit of housekeeping for netrw, which typically
-			# relies on the user's ssh config.
-			b:scp_cmd = $'scp -q -o ControlPath={conn.GetConduitControlPath()}'
-			
-			const reset_netrw_scp_cmd = exists("g:netrw_scp_cmd")
-			b:netrw_scp_cmd_before = 'scp -q'
-			if reset_netrw_scp_cmd
-				# Store the old netrw scp command
-				b:netrw_scp_cmd_before = g:netrw_scp_cmd
-			endif
+	try
+		# Conduit owns the control socket path for each connection profile, so
+		# netrw must always be pointed at the profile-specific socket.
+		var scp_cmd_parts = [
+			'scp',
+			'-q',
+			'-o', $'ControlPath={conn.GetConduitControlPath()}',
+		]
+		scp_cmd_parts->extend(GetScpArgs(conn))
+		b:scp_cmd = ShellJoin(scp_cmd_parts)
+		
+		const reset_netrw_scp_cmd = exists("g:netrw_scp_cmd")
+		b:netrw_scp_cmd_before = 'scp -q'
+		if reset_netrw_scp_cmd
+			# Store the old netrw scp command
+			b:netrw_scp_cmd_before = g:netrw_scp_cmd
+		endif
 
-			g:netrw_scp_cmd = b:scp_cmd
-			execute op .. ' ' .. fnameescape(target)
+		g:netrw_scp_cmd = b:scp_cmd
+		execute op .. ' ' .. fnameescape(target)
 
-			if reset_netrw_scp_cmd
-				# Reset netrw scp command if needed
-				g:netrw_scp_cmd = b:netrw_scp_cmd_before
+		if reset_netrw_scp_cmd
+			# Reset netrw scp command if needed
+			g:netrw_scp_cmd = b:netrw_scp_cmd_before
 
-				augroup ConduitUpdateNetrwControlPath
-					autocmd BufWritePre <buffer> g:netrw_scp_cmd = b:scp_cmd
-					autocmd BufWritePost <buffer> g:netrw_scp_cmd = b:netrw_scp_cmd_before
-				augroup END
-			endif
-		else 
-			# Connection is multiplexed automatically by ssh, respecting the
-			# user's ssh config file. No housekeeping is needed for netrw.
-			execute op .. ' ' .. fnameescape(target)
+			augroup ConduitUpdateNetrwControlPath
+				autocmd BufWritePre <buffer> g:netrw_scp_cmd = b:scp_cmd
+				autocmd BufWritePost <buffer> g:netrw_scp_cmd = b:netrw_scp_cmd_before
+			augroup END
 		endif
     catch
         Warn('Failed to open ' .. target .. ' (error: ' .. v:exception .. ')')
@@ -479,12 +623,9 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 		notif_suffix = $"{host}:{remote_path} → {local_path}"
 
 		if executable('rsync')
-			const port_str = GetPortStringOption(conn, false)
-			var rsh_cmd = 'ssh'
-			if !empty(port_str)
-				rsh_cmd ..= ' ' .. port_str
-			endif
-			rsh_cmd ..= $' -S {conn.GetConduitControlPath()}'
+			var rsh_args = GetSshArgs(conn)
+			rsh_args->extend(['-S', conn.GetConduitControlPath()])
+			var rsh_cmd = ShellJoin(rsh_args)
 
 			scp_cmd = [
 				"rsync",
@@ -496,16 +637,13 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 				local_path,
 			]
 		elseif executable('scp')
-			const port_str_scp = GetPortStringOption(conn, true)
 			scp_cmd = [
 				'scp', 
 				'-q',
 				$'-o ControlPath={conn.GetConduitControlPath()}',
 				'-r',
 			]
-			if !empty(port_str_scp)
-				scp_cmd->extend(split(port_str_scp))
-			endif
+			scp_cmd->extend(GetScpArgs(conn))
 			scp_cmd->extend([$'{host}:{remote_path}', local_path])
 		else
 			throw "error rsync or scp not available"
@@ -516,12 +654,9 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 		notif_suffix = $"{local_path} → {host}:{remote_path}"
 
 		if executable('rsync')
-			const port_str = GetPortStringOption(conn, false)
-			var rsh_cmd = 'ssh'
-			if !empty(port_str)
-				rsh_cmd ..= ' ' .. port_str
-			endif
-			rsh_cmd ..= $' -S {conn.GetConduitControlPath()}'
+			var rsh_args = GetSshArgs(conn)
+			rsh_args->extend(['-S', conn.GetConduitControlPath()])
+			var rsh_cmd = ShellJoin(rsh_args)
 
 			scp_cmd = [
 				"rsync",
@@ -534,16 +669,13 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 				$"{host}:{remote_path}",
 			]
 		elseif executable('scp')
-			const port_str_scp = GetPortStringOption(conn, true)
 			scp_cmd = [
 				'scp', 
 				'-q',
 				$'-o ControlPath={conn.GetConduitControlPath()}',
 				'-r',
 			]
-			if !empty(port_str_scp)
-				scp_cmd->extend(split(port_str_scp))
-			endif
+			scp_cmd->extend(GetScpArgs(conn))
 			scp_cmd->extend([local_path, $'{host}:{remote_path}'])
 		else
 			throw "error rsync or scp not available"
@@ -679,8 +811,19 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
 
     var job_out: job
     if executable('rsync')
+		var rsh_args = GetSshArgs(conn)
+		rsh_args->extend(['-S', conn.GetConduitControlPath()])
         job_out = job_start(
-            $'rsync --rsh "ssh -S {conn.GetConduitControlPath()}" --perms --chmod 700 ' .. local_rc .. ' ' .. conn.host .. ':' .. remote_rc,
+            [
+				'rsync',
+				'--rsh',
+				ShellJoin(rsh_args),
+				'--perms',
+				'--chmod',
+				'700',
+				local_rc,
+				conn.host .. ':' .. remote_rc,
+			],
             {
                 exit_cb: (job, status) => {
                     if status == 0
@@ -693,18 +836,32 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
             }
         )
     else
+        var scp_cmd = ['scp', '-q', '-S', conn.GetConduitControlPath()]
+        scp_cmd->extend(GetScpArgs(conn))
+        scp_cmd->extend([local_rc, conn.host .. ':' .. remote_rc])
         job_out = job_start(
-            $'scp -S {conn.GetConduitControlPath()} -q ' .. local_rc .. ' ' .. 
-            conn.host .. ':' .. remote_rc .. ' && ' ..
-            $'ssh -S {conn.GetConduitControlPath()} ' .. conn.host .. ' chmod 700 ' .. remote_rc,
+            scp_cmd,
             {
                 exit_cb: (_, status) => {
-                    if status == 0
-                        OnSuccess()
-                    else
+                    if status != 0
                         OnErr()
+                        delete(local_rc)
+                        return
                     endif
-                    delete(local_rc)
+
+					const ExitCb = (_, chmod_status) => {
+						if chmod_status == 0
+							OnSuccess()
+						else
+							OnErr()
+						endif
+						delete(local_rc)
+					}
+
+                    job_start(
+                        GetSshCommandArgs(conn, ['-S', conn.GetConduitControlPath()], ['chmod', '700', remote_rc]),
+                        { exit_cb: ExitCb }
+                    )
                 }
             }
         )
@@ -960,14 +1117,21 @@ enddef
 
 def OpenConduitControlMaster(conn: Connection): number
 	if getftype(conn.GetConduitControlPath()) ==# "socket"
-		system($"ssh -O check -S {conn.GetConduitControlPath()} {conn.host}")
+		system(GetSshCommandString(conn, ['-O', 'check', '-S', conn.GetConduitControlPath()]))
 
 		if v:shell_error == 0 | return 0 | endif
-		system($"ssh -O exit -S {conn.GetConduitControlPath()} {conn.host} >/dev/null 2>&1")
+		system(GetSshCommandString(conn, ['-O', 'exit', '-S', conn.GetConduitControlPath()]))
 	endif
 
-	const port_opt = GetPortStringOption(conn)
-	system($"ssh -fN -M -o ControlPersist={conn.GetConduitControlPersist()} -S {conn.GetConduitControlPath()} {port_opt} {conn.host}")
+	system(GetSshCommandString(
+		conn,
+		[
+			'-fN',
+			'-M',
+			'-o', $'ControlPersist={conn.GetConduitControlPersist()}',
+			'-S', conn.GetConduitControlPath(),
+		]
+		))
 
 	return v:shell_error
 enddef
@@ -978,35 +1142,30 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	var notif = notifier.StartLoading($"Connecting")
     # redraw!
 
-    if empty(args) || args !~ '^\S\+\(\s\+-p\s\+\d\+\)\?$'
-        Warn($'Usage:  {prefix} [user@]host[:port]')
+    if empty(args)
+        Warn($'Usage:  {prefix} [++SSHOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
         return
     endif
 
-    var parts = split(args)
-    var host = parts[0]
-	var port = -1
-
-	# Check if a port exists in the host, for example user@host:port
-	var port_specified = host =~ ":"
-	if port_specified
-		port = str2nr(host->split(":")[1])
-		host = host->split(":")[0]
-	endif
-
-	if port_specified && port == 0
-		# User specified some kind of invalid port, str2nr returned 0
-        Warn($'Usage:  {prefix} [user@]host[:port]')
+	var parsed: dict<any>
+	try
+		parsed = ParseConduitOpenArgs(args)
+	catch
+		Warn($'Usage:  {prefix} [++SSHOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
-        return
-	endif
+		return
+	endtry
+
+	var host = parsed.host
+	var port = parsed.port
+	var ssh_options = parsed.ssh_options
 
 	var conn: Connection
 	try
-		conn = MaybeAddEmptyConnection(host, port)
+		conn = MaybeAddEmptyConnection(host, port, ssh_options)
 	catch /E1013/
-        Warn($'Usage:  {prefix} [user@]host[:port]')
+        Warn($'Usage:  {prefix} [++SSHOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -1044,9 +1203,17 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					const tunnel  = remote_sock .. ':' .. sock_path
 
 					if deploy_only 
-						var ssh_cmd = $'ssh -f -N -S {conn.GetConduitControlPath()} '
-									.. '-o StreamLocalBindUnlink=yes -o ExitOnForwardFailure=yes -R ' .. tunnel .. ' '
-									.. conn.host
+						var ssh_cmd = GetSshCommandArgs(
+							conn,
+							[
+								'-f',
+								'-N',
+								'-S', conn.GetConduitControlPath(),
+								'-o', 'StreamLocalBindUnlink=yes',
+								'-o', 'ExitOnForwardFailure=yes',
+								'-R', tunnel,
+							]
+						)
 
 						job_start(
 							ssh_cmd, {
@@ -1054,7 +1221,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 								if code == 0
 									notifier.StopLoading(notif, $"✓ Success")
 									timer_start(2000, (____) => notifier.Dismiss(notif))
-									ConduitCopySourceCmd(host)
+									ConduitCopySourceCmd(GetConnectionsDictKey(conn))
 								else
 									notifier.StopLoading(notif, $"× Failed (error: {code})")
 									timer_start(5000, (____) => notifier.Dismiss(notif))
@@ -1068,16 +1235,24 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 
 					notifier.UpdateLoading(notif, $"Opening ssh reverse tunnel")
 					redraw
-					const options = get(g:conduit_host2sshoptions, host, [])->join(' ')
-					var ssh_cmd = $'ssh {options} -t -S {conn.GetConduitControlPath()} '
-								.. '-o StreamLocalBindUnlink=yes -o ExitOnForwardFailure=yes -R ' .. tunnel .. ' '
-								.. conn.host
-								.. $' {conn.ConduitShell()} --rcfile ' .. remote_rc .. ' -i'
+					var ssh_cmd = GetSshCommandArgs(
+						conn,
+						[
+							'-t',
+							'-S', conn.GetConduitControlPath(),
+							'-o', 'StreamLocalBindUnlink=yes',
+							'-o', 'ExitOnForwardFailure=yes',
+							'-R', tunnel,
+						],
+						[
+							conn.ConduitShell(),
+							'--rcfile',
+							remote_rc,
+							'-i',
+						]
+					)
 
-					var term_name = 'conduit://' .. conn.host
-					if conn.port > 0
-						term_name ..= $':{conn.port}'
-					endif
+					var term_name = 'conduit://' .. conn.GetProfileKey()
 					var spawn_cmd: string
 					if !curwin
 						spawn_cmd = (mods =~ 'tab') ? 'tabnew' : 'split'
@@ -1126,8 +1301,9 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 enddef
 
 export def ConduitExitCmd(host: string)
-	if has_key(connections, host)
-		const conn = connections[host]
+	const key = ResolveConnectionKey(host)
+	if !empty(key)
+		const conn = connections[key]
 		if getftype(conn.GetConduitControlPath()) ==# "socket"
 			var notif = notifier.StartLoading($"Exiting from {host}")
 
@@ -1143,7 +1319,7 @@ export def ConduitExitCmd(host: string)
 			const success = MaybeCleanup(conn, false, true)
 
 			# Exit the control master socket
-			system($"ssh -O exit -S {conn.GetConduitControlPath()} {conn.host}")
+			system(GetSshCommandString(conn, ['-O', 'exit', '-S', conn.GetConduitControlPath()]))
 			# delete(conn.GetConduitControlPath())
 
 			if success && v:shell_error == 0
@@ -1161,8 +1337,12 @@ enddef
 
 export def ConduitStopCmd(type: string, args: list<string>)
 	if empty(args) | return | endif
-	var host = args[0]
+	var key = ResolveConnectionKey(args[0])
 	var iden = (len(args) > 1) ? args[1] : ""
+	if empty(key)
+		Warn($'No current control socket for {args[0]}')
+		return
+	endif
 
 	var ops: list<Op>
 	if type ==# "get"
@@ -1179,7 +1359,7 @@ export def ConduitStopCmd(type: string, args: list<string>)
 	var i = len(ops) - 1
 	while i >= 0
 		const op = ops[i]
-		if op.host ==# host
+		if op.conn_key ==# key
 			var stop = false
 			if empty(iden) || iden == "*"
 				stop = true
@@ -1200,9 +1380,10 @@ export def ConduitStopCmd(type: string, args: list<string>)
 enddef
 
 export def ConduitDisconnectCmd(host: string)
-	if has_key(connections, host)
+	const key = ResolveConnectionKey(host)
+	if !empty(key)
 		const notif = notifier.StartLoading($"Disconnecting from {host}")
-		connections[host].Disconnect()
+		connections[key].Disconnect()
 		notifier.StopLoading(notif, $"✓ Disconnected from {host}")
 		timer_start(3000, (_) => notifier.Dismiss(notif))
 	else
@@ -1211,8 +1392,9 @@ export def ConduitDisconnectCmd(host: string)
 enddef
 
 export def ConduitCopySourceCmd(host: string)
-	if has_key(connections, host)
-		const conn = connections[host]
+	const key = ResolveConnectionKey(host)
+	if !empty(key)
+		const conn = connections[key]
 		const source_cmd = $"source {conn.GetRemoteRCPath()}"
 		echom $"run: {source_cmd}" 
 		@+ = source_cmd
@@ -1237,36 +1419,36 @@ export def ConduitCmd(deploy_only: bool, curwin: bool, mods: string, ...args: li
 	endif
 
 	if cmd ==# "open" # :Conduit open HOST
-		if len(args) != 2
-			echoerr "Usage:  Conduit open [user@]host[:port]"
+		if len(args) < 2
+			echoerr "Usage:  Conduit open [++SSHOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(deploy_only, curwin, mods, cmd_args)
 		endif
 
 	elseif cmd ==# "exit" # :Conduit exit HOST
 		if len(args) != 2
-			echoerr "Usage:  Conduit exit [user@]host[:port]"
+			echoerr "Usage:  Conduit exit [connection-key]"
 		else
 			ConduitExitCmd(cmd_args)
 		endif
 
 	elseif cmd ==# "deploy" # :Conduit deploy HOST
-		if len(args) != 2
-			echoerr "Usage:  Conduit deploy [user@]host[:port]"
+		if len(args) < 2
+			echoerr "Usage:  Conduit deploy [++SSHOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(true, false, '', cmd_args)
 		endif
 
 	elseif cmd ==# "disconnect" # :Conduit disconnect HOST
 		if len(args) != 2
-			echoerr "Usage:  Conduit disconnect [user@]host[:port]"
+			echoerr "Usage:  Conduit disconnect [connection-key]"
 		else
 			ConduitDisconnectCmd(args[1])
 		endif
 
 	elseif cmd ==# "source" # :Conduit source HOST
 		if len(args) != 2
-			echoerr "Usage:  Conduit source [user@]host[:port]"
+			echoerr "Usage:  Conduit source [connection-key]"
 		else
 			ConduitCopySourceCmd(cmd_args)
 		endif
@@ -1276,7 +1458,7 @@ export def ConduitCmd(deploy_only: bool, curwin: bool, mods: string, ...args: li
 
 	elseif cmd ==# "stop" # :Conduit stop OP HOST PATTERN
 		if len(args) != 4
-			echoerr "Usage:  Conduit stop op [user@]host[:port] pattern"
+			echoerr "Usage:  Conduit stop op [connection-key] pattern"
 		else
 			ConduitStopCmd(args[1], args[2 :])
 		endif
@@ -1370,24 +1552,21 @@ def ToTitleCase(input: string): string
 enddef
 
 export def ConduitHostComplHelper(current_cmd: string, pattern: string): list<string>
-    if current_cmd =~ '^\S\+ \+\S*$'
-        var options = ExtractConduitConfig()
-        return filter(options, (_, val) => val =~ '^' .. pattern)
-    endif
-    return []
+    var options = ExtractConduitConfig()
+    return filter(options, (_, val) => val =~ '^' .. pattern)
 enddef
 
 export def ConduitHostCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
+    if ArgLead =~# '^++'
+        return []
+    endif
     var current_cmd = GetCurrentCmd(CmdLine, CursorPos)
 	return ConduitHostComplHelper(current_cmd, ArgLead)
 enddef
 
 export def ConduitActiveComplHelper(current_cmd: string, pattern: string): list<string>
-    if current_cmd =~ '^\S\+ \+\S*$'
-        var options = keys(connections)
-        return filter(options, (_, val) => val =~ pattern)
-    endif
-    return []
+    var options = keys(connections)
+    return filter(options, (_, val) => val =~ pattern)
 enddef
 
 export def ConduitActiveCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
@@ -1404,15 +1583,18 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
     if current_cmd =~ '^Conduit!\? \+\S*$'
         var options = ["open", "exit", "deploy", "disconnect", "source", "notifications", "stop"]
         return filter(options, (_, val) => val =~ '^' .. ArgLead)
-    
-    # Completing the second argument (e.g., "Conduit open myho")
+
+    # Completing the host argument for open/deploy.
+    elseif cmd ==# "open" || cmd ==# "deploy"
+		if ArgLead =~# '^++'
+			return []
+		endif
+		return ConduitHostComplHelper(current_cmd, ArgLead)
+
+    # Completing the second argument for the other sub-commands.
     elseif current_cmd =~ '^Conduit!\? \+\S\+ \+\S*$'
         if len(parts) >= 2
-            if cmd ==# "open" || cmd ==# "deploy"
-				const prefix = "Conduit" .. ToTitleCase(cmd)
-				const host = len(parts) >= 3 ? parts[2] : "" # Fixed index: parts[2] is the host
-				return ConduitHostComplHelper(prefix .. ' ' .. host, ArgLead)
-			elseif cmd ==# "stop"
+			if cmd ==# "stop"
 				return ["get", "put", "*"]
             else
 				const prefix = "Conduit" .. ToTitleCase(cmd)
@@ -1458,7 +1640,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 			endif
 
 			for op in ops
-				if op.host !=# host | continue | endif
+				if op.conn_key !=# host | continue | endif
 				files->add(op.local_file)
 				files->add(op.remote_file)
 			endfor
@@ -1512,30 +1694,38 @@ export def MaybeCleanup(conn: Connection, all: bool = false, force: bool = false
 
 			const remote_rc = c.GetRemoteRCPath()
 			const remote_sock = c.GetRemoteReverseTunnelSocketPath()
-			const port_opt = GetPortStringOption(c)
 			const tunnel = remote_sock .. ':' .. local_sock
 
 			# If all is true, we are in VimLeave, so do it sync
 			if all
-				system($'ssh -S {c.GetConduitControlPath()} -O cancel -R {tunnel} {port_opt} {c.host}')
+				system(GetSshCommandString(c, ['-S', c.GetConduitControlPath(), '-O', 'cancel', '-R', tunnel]))
 				const control_master_error = v:shell_error
-				system($'ssh -S {c.GetConduitControlPath()} {port_opt} {c.host} rm -f {remote_rc} {remote_sock}')
+				system(GetSshCommandString(c, ['-S', c.GetConduitControlPath()], ['rm', '-f', remote_rc, remote_sock]))
 				const remote_cleanup_error = v:shell_error
 				success = success && (control_master_error == 0) && (remote_cleanup_error == 0)
 				if Callback != null | Callback(success) | endif
 			else
 				# Async cleanup via a background job
-				const cmd = [
-					'sh', '-c',
-					$'ssh -S {c.GetConduitControlPath()} -O cancel -R {tunnel} {port_opt} {c.host}; ' ..
-					$'ssh -S {c.GetConduitControlPath()} {port_opt} {c.host} rm -f {remote_rc} {remote_sock}'
-				]
-				job_start(cmd, {
-					exit_cb: (_, code) => {
-						const job_success = (code == 0)
-						if Callback != null | Callback(job_success) | endif
+				job_start(
+					GetSshCommandArgs(c, ['-S', c.GetConduitControlPath(), '-O', 'cancel', '-R', tunnel]),
+					{
+						exit_cb: (_, cancel_code) => {
+							if cancel_code != 0
+								if Callback != null | Callback(false) | endif
+								return
+							endif
+
+							const ExitCb = (_, rm_code) => {
+								if Callback != null  | Callback(rm_code == 0) | endif 
+							}
+
+							job_start(
+								GetSshCommandArgs(c, ['-S', c.GetConduitControlPath()], ['rm', '-f', remote_rc, remote_sock]),
+								{exit_cb: ExitCb},
+							)
+						}
 					}
-				})
+				)
 			endif
 		else
 			if Callback != null | Callback(true) | endif
