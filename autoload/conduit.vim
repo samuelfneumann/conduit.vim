@@ -584,21 +584,25 @@ def OpenFile(conn: Connection, op: string, remote_path: string)
 			'-o', $'ControlPath={conn.GetConduitControlPath()}',
 		]
 		scp_cmd_parts->extend(GetScpArgs(conn))
-		b:scp_cmd = ShellJoin(scp_cmd_parts)
+		const scp_cmd = ShellJoin(scp_cmd_parts)
 		
 		const reset_netrw_scp_cmd = exists("g:netrw_scp_cmd")
-		b:netrw_scp_cmd_before = 'scp -q'
+		var netrw_scp_cmd_before = 'scp -q'
 		if reset_netrw_scp_cmd
 			# Store the old netrw scp command
-			b:netrw_scp_cmd_before = g:netrw_scp_cmd
+			netrw_scp_cmd_before = g:netrw_scp_cmd
 		endif
 
-		g:netrw_scp_cmd = b:scp_cmd
+		g:netrw_scp_cmd = scp_cmd
 		execute op .. ' ' .. fnameescape(target)
 
 		if reset_netrw_scp_cmd
 			# Reset netrw scp command if needed
-			g:netrw_scp_cmd = b:netrw_scp_cmd_before
+			g:netrw_scp_cmd = netrw_scp_cmd_before
+
+			const bufnr = bufnr(fnameescape(target))
+			setbufvar(bufnr, "scp_cmd", scp_cmd)
+			setbufvar(bufnr, "netrw_scp_cmd_before", netrw_scp_cmd_before)
 
 			augroup ConduitUpdateNetrwControlPath
 				autocmd BufWritePre <buffer> g:netrw_scp_cmd = b:scp_cmd
