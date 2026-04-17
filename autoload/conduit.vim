@@ -304,6 +304,35 @@ const ssh_opts_with_value = [
 	'p', 'Q', 'R', 'S', 'W', 'w',
 ]
 
+const term_opts = [
+	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
+]
+
+const term_opts_with_value = [
+	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
+]
+
+def ParseTermOptions(opts: dict<any>): dict<any>
+	var new_opts = {}
+	for key in keys(opts)
+		if key == 'rows' || key == 'cols'
+			new_opts[$'term_{key}'] = str2nr(opts[key])
+		elseif key == 'opencmd'
+			new_opts['term_opencmd'] = opts[key]
+		elseif key == 'eof'
+			new_opts['eof_chars'] = opts[key]
+		elseif key == 'kill' || key == 'api'
+			new_opts[$'term_{key}'] = opts[key]
+		elseif key == 'vertical' || key == 'curwin' || key == 'hidden' || key == 'norestore'
+			new_opts[key] = true
+		elseif key == 'close' || key == 'noclose' || key == 'open'
+			new_opts['term_finish'] = key
+		endif
+	endfor
+
+	return new_opts
+enddef
+
 def ParseConduitOpenArgs(args: string): dict<any>
 	var tokens = split(args)
 	if empty(tokens)
@@ -311,11 +340,12 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	endif
 
 	var ssh_options: list<string> = []
+	var term_options: dict<any> = {}
 	var idx = 0
 	while idx < len(tokens) && tokens[idx] =~# '^++'
 		var token = tokens[idx][2 : ]
 		if empty(token)
-			throw 'invalid ssh option'
+			throw 'invalid conduit option'
 		endif
 
 		if token =~# '^--'
@@ -327,10 +357,16 @@ def ParseConduitOpenArgs(args: string): dict<any>
 		if eq_idx >= 0
 			const flag = token[: eq_idx - 1]
 			const val = token[eq_idx + 1 : ]
+
 			if empty(flag) || empty(val)
 				throw 'invalid ssh option'
 			endif
-			ssh_options->extend([$'-{flag}', val])
+
+			if index(ssh_opts_with_value, token) >= 0
+				ssh_options->extend([$'-{flag}', val])
+			elseif index(term_opts_with_value, flag) >= 0
+				term_options[flag] = val
+			endif
 			idx += 1
 			continue
 		endif
@@ -342,9 +378,20 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			ssh_options->extend([$'-{token}', tokens[idx + 1]])
 			idx += 2
 			continue
+		elseif index(term_opts_with_value, token) >= 0
+			if idx + 1 >= len(tokens)
+				throw $'term option ++{token} requires a value'
+			endif
+			term_options[token] = tokens[idx + 1]
+			idx += 2
+			continue
 		endif
 
-		ssh_options->add($'-{token}')
+		if index(term_opts, token) >= 0
+			term_options[token] = ""
+		else
+			ssh_options->add($'-{token}')
+		endif
 		idx += 1
 	endwhile
 
@@ -368,6 +415,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 		host: host,
 		port: port,
 		ssh_options: ssh_options,
+		term_options: term_options,
 	}
 enddef
 
@@ -1164,6 +1212,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	var host = parsed.host
 	var port = parsed.port
 	var ssh_options = parsed.ssh_options
+	var term_options = ParseTermOptions(parsed.term_options)
 
 	var conn: Connection
 	try
@@ -1257,13 +1306,18 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					)
 
 					var term_name = 'conduit://' .. conn.GetProfileKey()
-					var spawn_cmd: string
-					if !curwin
-						spawn_cmd = (mods =~ 'tab') ? 'tabnew' : 'split'
+					const hidden = term_options->get('hidden', false)
+					if !hidden
+						var spawn_cmd: string
+						if !curwin && ! term_options->get('curwin', false)
+							spawn_cmd = (mods =~ 'tab') ? 'tabnew' : 'split'
+						endif
+						execute mods .. ' ' .. spawn_cmd .. ' | enew'
 					endif
-					execute mods .. ' ' .. spawn_cmd .. ' | enew'
+
 					const term_bufnr = term_start(
-						ssh_cmd, { term_name: term_name, curwin: true }
+						ssh_cmd,
+						term_options->extend({ term_name: term_name, curwin: !hidden })
 					)
 					conn.AddTermByBufNr(term_bufnr)
 
