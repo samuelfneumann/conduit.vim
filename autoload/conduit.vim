@@ -1616,10 +1616,14 @@ enddef
 
 export def ConduitHostCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
     if ArgLead =~# '^++'
-        return []
+		var opts = term_opts + mapnew(
+			term_opts_with_value + ssh_opts_with_value,
+			(_, v) => v .. '='
+		)
+		return mapnew(opts, (_, v) => '++' .. v)
     endif
     var current_cmd = GetCurrentCmd(CmdLine, CursorPos)
-	return ConduitHostComplHelper(current_cmd, ArgLead)
+	return ["++"] + ConduitHostComplHelper(current_cmd, ArgLead)
 enddef
 
 export def ConduitActiveComplHelper(current_cmd: string, pattern: string): list<string>
@@ -1645,9 +1649,13 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
     # Completing the host argument for open/deploy.
     elseif cmd ==# "open" || cmd ==# "deploy"
 		if ArgLead =~# '^++'
-			return []
+			var opts = term_opts + mapnew(
+				term_opts_with_value + ssh_opts_with_value,
+				(_, v) => v .. '='
+			)
+			return mapnew(opts, (_, v) => '++' .. v)
 		endif
-		return ConduitHostComplHelper(current_cmd, ArgLead)
+		return ["++"] + ConduitHostComplHelper(current_cmd, ArgLead)
 
     # Completing the second argument for the other sub-commands.
     elseif current_cmd =~ '^Conduit!\? \+\S\+ \+\S*$'
