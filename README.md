@@ -72,6 +72,22 @@ $ lvim get log.txt        # "Fetch": Remote -> Local CWD
 $ lvim put script.sh      # "Send":  Local -> Remote CWD
 ```
 
+### SSH Options on `ConduitOpen`
+
+`ConduitOpen` accepts SSH flags before the destination host using a `++`
+prefix. The most useful case is jump hosts:
+
+```vim
+:ConduitOpen ++J user1@host1 user2@host2
+```
+
+That maps to `ssh -J user1@host1 user2@host2` and is threaded through the
+control master, reverse tunnel, file transfer, and cleanup commands.
+
+When you open more than one profile for the same host, Conduit tracks each one
+with a profile key like `user@host:22-1a2b3c4d5e6f`. Use that key for
+`:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
+
 ### Advanced Fuzzy Uploads (`put`)
 
 If you run `lvim put my-local-file.txt` but that file isn't in your local directory, Conduit will:
