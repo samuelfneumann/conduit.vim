@@ -316,6 +316,10 @@ const open_file_ops = [
 	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
 ]
 
+def PathSep(): string
+   return has('win32') ? '\' : '/'
+enddef
+
 def OnLine(conn: Connection, line: string)
 	var op_path = trim(line)->split(g:conduit_sep)
 
@@ -340,7 +344,10 @@ def OnLine(conn: Connection, line: string)
 		if len(paths) == 1 || empty(paths[1])
 			RsyncFile(conn, true, paths[0], getcwd())
 		elseif len(paths) == 2
-			RsyncFile(conn, true, paths[0], paths[1])
+			const save_path = isabsolutepath(paths[1]) 
+				? paths[1] 
+				: getcwd() .. PathSep() .. paths[1]
+			RsyncFile(conn, true, paths[0], save_path)
 		else
 			throw $"error: get expects 1 or 2 arguments, got {len(paths)}"
 		endif
@@ -658,6 +665,12 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
 		$'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(realpath "$2")"',
 		'    else',
         $'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
+		'    fi',
+		'  elif [ "$op" == "get" ]; then',
+		'    if (( $# >= 2 )); then',
+		$'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$2"',
+		'    else',
+        $'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}"',
 		'    fi',
 		'  else',
         '    for f in "$@"; do',
