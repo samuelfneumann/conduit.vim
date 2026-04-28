@@ -25,7 +25,7 @@ import autoload 'conduit.vim'
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitCompl  Conduit conduit.ConduitCmd(false, !empty(expand("<bang>")), <q-mods>, <f-args>)
-command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitHostCompl ConduitOpen conduit.ConduitOpenCmd(false, !empty(expand("<bang>")), <q-mods>, <q-args>)
+command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitHostAndOptionCompl ConduitOpen conduit.ConduitOpenCmd(false, !empty(expand("<bang>")), <q-mods>, <q-args>)
 command! -bar -nargs=+ -complete=customlist,conduit.ConduitHostCompl ConduitDeploy conduit.ConduitOpenCmd(true, false, '', <q-args>)
 command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitExit conduit.ConduitExitCmd(<q-args>)
 command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitDisconnect conduit.ConduitDisconnectCmd(<q-args>)
