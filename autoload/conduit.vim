@@ -1666,8 +1666,10 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		if empty(ArgLead) | return options | endif
         return matchfuzzy(options, ArgLead)
 
-    elseif cmd ==# "open" || cmd ==# "deploy"
-		return ConduitOptsCompl(ArgLead, CmdLine, CursorPos) + ConduitHostComplHelper(current_cmd, ArgLead)
+    elseif cmd ==# "open"
+		return ConduitHostAndOptionCompl(ArgLead, CmdLine, CursorPos)
+    elseif  cmd ==# "deploy"
+		return ConduitHostComplHelper(current_cmd, ArgLead)
 
     # Completing the second argument for the other sub-commands.
     elseif current_cmd =~ '^Conduit!\? \+\S\+ \+\S*$'
