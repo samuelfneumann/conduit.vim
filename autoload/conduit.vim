@@ -312,6 +312,8 @@ const term_opts_with_value = [
 	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
 ]
 
+const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
+
 def ParseTermOptions(opts: dict<any>): dict<any>
 	var new_opts = {}
 	for key in keys(opts)
@@ -1611,29 +1613,46 @@ enddef
 
 export def ConduitHostComplHelper(current_cmd: string, pattern: string): list<string>
     var options = ExtractConduitConfig()
-    return filter(options, (_, val) => val =~ '^' .. pattern)
+	if empty(pattern) | return options | endif
+    return matchfuzzy(options, pattern)
 enddef
 
 export def ConduitHostCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
-    if ArgLead =~# '^++'
-		var opts = term_opts + mapnew(
-			term_opts_with_value + ssh_opts_with_value,
-			(_, v) => v .. '='
-		)
-		return mapnew(opts, (_, v) => '++' .. v)
-    endif
     var current_cmd = GetCurrentCmd(CmdLine, CursorPos)
-	return ["++"] + ConduitHostComplHelper(current_cmd, ArgLead)
+	return ConduitHostComplHelper(current_cmd, ArgLead)
 enddef
 
 export def ConduitActiveComplHelper(current_cmd: string, pattern: string): list<string>
     var options = keys(connections)
-    return filter(options, (_, val) => val =~ pattern)
+	if empty(pattern) | return options | endif
+    return matchfuzzy(options, pattern)
 enddef
 
 export def ConduitActiveCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
     var current_cmd = GetCurrentCmd(CmdLine, CursorPos)
 	return ConduitActiveComplHelper(current_cmd, ArgLead)
+enddef
+
+export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
+	const opts = term_opts + mapnew(
+		term_opts_with_value + ssh_opts_with_value,
+		(_, v) => v .. '='
+	)
+
+	if ArgLead =~# '^++[a-zA-Z=]'
+		return mapnew(matchfuzzy(opts, ArgLead[2 : ]), (_, v) => '++' .. v)
+	elseif ArgLead =~# '^+[a-zA-Z=]*'
+		return mapnew(matchfuzzy(opts, ArgLead[1 : ]), (_, v) => '++' .. v)
+	elseif ArgLead =~# '^++\?$'
+		return ['++'] + mapnew(opts, (_, v) => '++' .. v)
+	endif
+
+	return ['++']
+enddef
+
+export def ConduitHostAndOptionCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
+    var current_cmd = GetCurrentCmd(CmdLine, CursorPos)
+	return ConduitOptsCompl(ArgLead, CmdLine, CursorPos) + ConduitHostCompl(ArgLead, CmdLine, CursorPos)
 enddef
 
 export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
@@ -1644,18 +1663,11 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
     # Completing the sub-command (e.g., "Conduit op")
     if current_cmd =~ '^Conduit!\? \+\S*$'
         var options = ["open", "exit", "deploy", "disconnect", "source", "notifications", "stop"]
-        return filter(options, (_, val) => val =~ '^' .. ArgLead)
+		if empty(ArgLead) | return options | endif
+        return matchfuzzy(options, ArgLead)
 
-    # Completing the host argument for open/deploy.
     elseif cmd ==# "open" || cmd ==# "deploy"
-		if ArgLead =~# '^++'
-			var opts = term_opts + mapnew(
-				term_opts_with_value + ssh_opts_with_value,
-				(_, v) => v .. '='
-			)
-			return mapnew(opts, (_, v) => '++' .. v)
-		endif
-		return ["++"] + ConduitHostComplHelper(current_cmd, ArgLead)
+		return ConduitOptsCompl(ArgLead, CmdLine, CursorPos) + ConduitHostComplHelper(current_cmd, ArgLead)
 
     # Completing the second argument for the other sub-commands.
     elseif current_cmd =~ '^Conduit!\? \+\S\+ \+\S*$'
