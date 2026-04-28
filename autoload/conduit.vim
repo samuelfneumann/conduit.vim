@@ -1639,9 +1639,9 @@ export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number)
 		(_, v) => v .. '='
 	)
 
-	if ArgLead =~# '^++[a-zA-Z=]'
+	if ArgLead =~# '^++[a-zA-Z=]\+'
 		return mapnew(matchfuzzy(opts, ArgLead[2 : ]), (_, v) => '++' .. v)
-	elseif ArgLead =~# '^+[a-zA-Z=]*'
+	elseif ArgLead =~# '^+[a-zA-Z=]\+'
 		return mapnew(matchfuzzy(opts, ArgLead[1 : ]), (_, v) => '++' .. v)
 	elseif ArgLead =~# '^++\?$'
 		return ['++'] + mapnew(opts, (_, v) => '++' .. v)
