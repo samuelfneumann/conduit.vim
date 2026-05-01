@@ -1397,14 +1397,11 @@ export def ConduitExitCmd(host: string)
 			# Perform cleanup
 			const success = MaybeCleanup(conn, false, true)
 
-			# Exit the control master socket
-			system(GetSshCommandString(conn, ['-O', 'exit', '-S', conn.GetConduitControlPath()]))
-			if conn.IsManuallyControlledMultiplexing() && getftype(conn.GetConduitControlPath()) ==# "socket"
-				delete(conn.GetConduitControlPath())
-			endif
-			# delete(conn.GetConduitControlPath())
-
-			if success && v:shell_error == 0
+			# Do not forcibly exit a shared control master here. Multiple Vim
+			# instances can reuse the same ControlMaster, so closing it from one
+			# session would break the others. Let ControlPersist or an explicit
+			# SSH shutdown handle the master lifetime.
+			if success
 				timer_start(500, (_) => notifier.StopLoading(notif, $"✓ Exited from {host}"))
 				timer_start(3500, (_) => notifier.Dismiss(notif))
 			else
