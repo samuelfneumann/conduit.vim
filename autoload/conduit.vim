@@ -149,6 +149,10 @@ export class Connection
 		this.listener_job = job
 	enddef
 
+	def GetSockReady(): bool
+		return this.sock_ready
+	enddef
+
 	def SetSockReady()
 		this.sock_ready = true
 	enddef
@@ -1359,7 +1363,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 		})
 	}
 
-	if conn.ConduitOpen() && conn.ConnectedTerms() == 0
+	if conn.GetSockReady() && conn.ConduitOpen() && conn.ConnectedTerms() == 0
 		# Restart notification for cleanup step
 		notifier.UpdateLoading(notif, $"Cleaning up stale files on remote")
 		redraw
@@ -1781,6 +1785,7 @@ export def MaybeCleanup(conn: Connection, all: bool = false, force: bool = false
 		if job_status(c.listener_job) == 'run'
 			# Cleanup job listener
 			job_stop(c.listener_job)
+			c.SetSockNotReady()
 		endif
 
 		const local_sock = c.GetLocalReverseTunnelSocketPath()
