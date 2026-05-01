@@ -1183,11 +1183,17 @@ enddef
 # ── Command Implementation ───────────────────────────────────────────────────
 
 def OpenConduitControlMaster(conn: Connection): number
-	if getftype(conn.GetConduitControlPath()) ==# "socket"
-		system(GetSshCommandString(conn, ['-O', 'check', '-S', conn.GetConduitControlPath()]))
+	const control_path = conn.GetConduitControlPath()
+
+	if getftype(control_path) ==# "socket"
+		system(GetSshCommandString(conn, ['-O', 'check', '-S', control_path]))
 
 		if v:shell_error == 0 | return 0 | endif
-		system(GetSshCommandString(conn, ['-O', 'exit', '-S', conn.GetConduitControlPath()]))
+		system(GetSshCommandString(conn, ['-O', 'exit', '-S', control_path]))
+
+		if conn.IsManuallyControlledMultiplexing() && getftype(control_path) ==# "socket"
+			delete(control_path)
+		endif
 	endif
 
 	system(GetSshCommandString(
@@ -1196,7 +1202,7 @@ def OpenConduitControlMaster(conn: Connection): number
 			'-fN',
 			'-M',
 			'-o', $'ControlPersist={conn.GetConduitControlPersist()}',
-			'-S', conn.GetConduitControlPath(),
+			'-S', control_path,
 		]
 		))
 
@@ -1393,6 +1399,9 @@ export def ConduitExitCmd(host: string)
 
 			# Exit the control master socket
 			system(GetSshCommandString(conn, ['-O', 'exit', '-S', conn.GetConduitControlPath()]))
+			if conn.IsManuallyControlledMultiplexing() && getftype(conn.GetConduitControlPath()) ==# "socket"
+				delete(conn.GetConduitControlPath())
+			endif
 			# delete(conn.GetConduitControlPath())
 
 			if success && v:shell_error == 0
