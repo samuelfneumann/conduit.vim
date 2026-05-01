@@ -1342,6 +1342,11 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					)
 
 					var term_name = 'conduit://' .. conn.GetProfileKey()
+					const nterms = conn.ConnectedTerms()
+					if nterms > 0 
+						term_name ..= $"[{nterms}]" 
+					endif
+
 					const hidden = term_options->get('hidden', false)
 					if !hidden
 						var spawn_cmd: string
