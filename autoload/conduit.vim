@@ -149,6 +149,10 @@ export class Connection
 		this.listener_job = job
 	enddef
 
+	def GetSockReady(): bool
+		return this.sock_ready
+	enddef
+
 	def SetSockReady()
 		this.sock_ready = true
 	enddef
@@ -1183,11 +1187,17 @@ enddef
 # ── Command Implementation ───────────────────────────────────────────────────
 
 def OpenConduitControlMaster(conn: Connection): number
-	if getftype(conn.GetConduitControlPath()) ==# "socket"
-		system(GetSshCommandString(conn, ['-O', 'check', '-S', conn.GetConduitControlPath()]))
+	const control_path = conn.GetConduitControlPath()
+
+	if getftype(control_path) ==# "socket"
+		system(GetSshCommandString(conn, ['-O', 'check', '-S', control_path]))
 
 		if v:shell_error == 0 | return 0 | endif
-		system(GetSshCommandString(conn, ['-O', 'exit', '-S', conn.GetConduitControlPath()]))
+		system(GetSshCommandString(conn, ['-O', 'exit', '-S', control_path]))
+
+		if conn.IsManuallyControlledMultiplexing() && getftype(control_path) ==# "socket"
+			delete(control_path)
+		endif
 	endif
 
 	system(GetSshCommandString(
@@ -1196,7 +1206,7 @@ def OpenConduitControlMaster(conn: Connection): number
 			'-fN',
 			'-M',
 			'-o', $'ControlPersist={conn.GetConduitControlPersist()}',
-			'-S', conn.GetConduitControlPath(),
+			'-S', control_path,
 		]
 		))
 
@@ -1353,7 +1363,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 		})
 	}
 
-	if conn.ConduitOpen() && conn.ConnectedTerms() == 0
+	if conn.GetSockReady() && conn.ConduitOpen() && conn.ConnectedTerms() == 0
 		# Restart notification for cleanup step
 		notifier.UpdateLoading(notif, $"Cleaning up stale files on remote")
 		redraw
@@ -1391,11 +1401,11 @@ export def ConduitExitCmd(host: string)
 			# Perform cleanup
 			const success = MaybeCleanup(conn, false, true)
 
-			# Exit the control master socket
-			system(GetSshCommandString(conn, ['-O', 'exit', '-S', conn.GetConduitControlPath()]))
-			# delete(conn.GetConduitControlPath())
-
-			if success && v:shell_error == 0
+			# Do not forcibly exit a shared control master here. Multiple Vim
+			# instances can reuse the same ControlMaster, so closing it from one
+			# session would break the others. Let ControlPersist or an explicit
+			# SSH shutdown handle the master lifetime.
+			if success
 				timer_start(500, (_) => notifier.StopLoading(notif, $"✓ Exited from {host}"))
 				timer_start(3500, (_) => notifier.Dismiss(notif))
 			else
@@ -1775,6 +1785,7 @@ export def MaybeCleanup(conn: Connection, all: bool = false, force: bool = false
 		if job_status(c.listener_job) == 'run'
 			# Cleanup job listener
 			job_stop(c.listener_job)
+			c.SetSockNotReady()
 		endif
 
 		const local_sock = c.GetLocalReverseTunnelSocketPath()
