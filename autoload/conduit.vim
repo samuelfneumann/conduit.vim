@@ -51,22 +51,28 @@ export class Connection
 		return !this.ConduitOpen()
 	enddef
 
-	def IsManuallyControlledMultiplexing(): bool
+	def GetSshConfigControlPath(): string
 		for line in systemlist(GetSshCommandString(this, ['-G']))
-			if line =~ '^controlpath ' | return false | endif
+			if line =~# '^controlpath '
+				return line[len('controlpath ') : ]
+			endif
 		endfor
 
-		return true
+		return ''
+	enddef
+
+	def IsManuallyControlledMultiplexing(): bool
+		return empty(this.GetSshConfigControlPath())
 	enddef
 
 	def GetConduitControlPersist(): string
 		const default = g:conduit_default_control_persist
 
-		if !this.IsManuallyControlledMultiplexing()
+		if !empty(this.GetSshConfigControlPath())
 			# If there is an ssh config file to use, check if there is a
 			# control persist setting specified there
 			for line in systemlist(GetSshCommandString(this, ['-G']))
-				if line =~ '^controlpersist '
+				if line =~# '^controlpersist '
 					return line[len('controlpersist ') : ] 
 				endif
 			endfor
@@ -78,6 +84,11 @@ export class Connection
 	enddef
 
 	def GetConduitControlPath(): string
+		const controlpath = this.GetSshConfigControlPath()
+		if !empty(controlpath)
+			return controlpath
+		endif
+
 		if this.port > 0
 			return $'/tmp/.vim-conduit-connection-{this.host}-{this.port}{GetProfileSuffix(this.ssh_options)}.sock'
 		endif
