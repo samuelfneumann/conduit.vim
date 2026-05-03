@@ -781,73 +781,7 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 enddef
 
 def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: string)
-	const host = conn.host
-
-	var scp_cmd: list<string>
-	var notif_suffix: string
-	if get
-		notif_suffix = $"{host}:{remote_path} → {local_path}"
-
-		if executable('rsync')
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
-
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--rsh",
-				rsh_cmd,
-				$"{host}:{remote_path}",
-				local_path,
-			]
-		elseif executable('scp')
-			scp_cmd = [
-				'scp', 
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			scp_cmd->extend([$'{host}:{remote_path}', local_path])
-		else
-			throw "error rsync or scp not available"
-		endif
-
-	else # put
-		notif_suffix = $"{local_path} → {host}:{remote_path}"
-
-		if executable('rsync')
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
-
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--inplace",
-				"--rsh",
-				rsh_cmd,
-				local_path,
-				$"{host}:{remote_path}",
-			]
-		elseif executable('scp')
-			scp_cmd = [
-				'scp', 
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			scp_cmd->extend([local_path, $'{host}:{remote_path}'])
-		else
-			throw "error rsync or scp not available"
-		endif
-	endif
-
-	StartTransferJob(conn, get, get ? 'get' : 'put', scp_cmd, notif_suffix, local_path, remote_path)
+	RsyncFiles(conn, get, [remote_path], local_path)
 enddef
 
 def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: string)
