@@ -60,6 +60,12 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 :ConduitNotifications                                       *:ConduitNotifications*
         Show a history of conduit notifications in a scratch buffer.
 
+:Conduit mget {host} {pattern}                              *:Conduit mget*
+        Download all remote files on {host} matching {pattern}.
+
+:Conduit mput {host} {pattern}                              *:Conduit mput*
+        Upload all local files matching {pattern} to {host}.
+
 :ConduitStopGet {host} [{pattern}]                          *:ConduitStopGet*
         Stop ongoing 'get' transfers for {host}. Optional {pattern} filters
         by filename.

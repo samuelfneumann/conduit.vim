@@ -532,6 +532,14 @@ def PathSep(): string
    return has('win32') ? '\' : '/'
 enddef
 
+def ExpandLocalGlob(pattern: string): list<string>
+	if empty(pattern)
+		return []
+	endif
+
+	return glob(pattern, false, true)
+enddef
+
 def OnLine(conn: Connection, line: string)
 	var op_path = trim(line)->split(g:conduit_sep)
 
@@ -625,6 +633,28 @@ def OnLine(conn: Connection, line: string)
 		else
 			throw $"error: put expects 1 or 2 arguments, got {len(paths)}"
 		endif
+	elseif op == "mget"
+		for remote_file in paths
+			if empty(remote_file)
+				continue
+			endif
+			RsyncFile(conn, true, remote_file, getcwd())
+		endfor
+	elseif op == "mput"
+		if empty(paths)
+			throw "error: mput expects at least 1 argument"
+		endif
+
+		const remote_path = len(paths) > 1 ? paths[1] : ""
+		const local_files = ExpandLocalGlob(paths[0])
+		if empty(local_files)
+			Warn($"Could not find file {paths[0]}")
+			return
+		endif
+
+		for local_file in local_files
+			RsyncFile(conn, false, remote_path, local_file)
+		endfor
 	else
 		throw $"error: invalid operation {op}"
 	endif
@@ -825,7 +855,7 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 enddef
 
 const all_ops = [
-	"put", "get", "split", "sp",
+	"put", "get", "mget", "mput", "split", "sp",
 	"vsplit", "vsp", "vert split", "vertical split",
 	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
 ]
@@ -856,7 +886,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         '  case "$1" in',
 		$'    {quoted_joined_file_ops}) op="$1"; shift ;;',
         '  esac',
-        '  if [ "$#" -eq 0 ]; then',
+		'  if [ "$#" -eq 0 ]; then',
         $"    echo 'Usage: lvim [{quoted_joined_file_ops}] <file> [files...]' >&2",
         '    return 1',
         '  fi',
@@ -873,6 +903,12 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
 		'    else',
         $'      msg="$msg{g:conduit_sep}$(realpath $1){g:conduit_sep}"',
 		'    fi',
+		'  elif [ "$op" == "mget" ]; then',
+		'    for f in "$@"; do',
+		$'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
+		'    done',
+		'  elif [ "$op" == "mput" ]; then',
+		'    msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
 		'  else',
         '    for f in "$@"; do',
         $'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
