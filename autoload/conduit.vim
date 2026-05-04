@@ -930,7 +930,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
 		$'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
 		'    done',
 		'  elif [ "$op" == "mput" ]; then',
-		'    msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
+		$'    msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
 		'  else',
         '    for f in "$@"; do',
         $'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
