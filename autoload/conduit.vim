@@ -719,8 +719,8 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 
 	const notif = notifier.StartProgress($'{op} [0.00 KB/s] {notif_suffix}')
 
-	# Debounce time for updating progress bar
-	const debounce = 0.750 # seconds
+	# Throttle time for updating progress bar
+	const throttle = 1.250 # seconds
 	var last_run = reltime()
 
 	var scp_op: Op
@@ -732,9 +732,9 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 		out_io: "pipe",
 		out_mode: "raw",
 		out_cb: (_, msg) => {
-			# Debounce
+			# Throttle
 			const seconds_since_last_run = reltime(last_run)->reltimefloat()
-			if seconds_since_last_run < debounce | return | endif
+			if seconds_since_last_run < throttle | return | endif
 			last_run = reltime()
 
 			var latest: string
