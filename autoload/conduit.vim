@@ -627,9 +627,9 @@ def OnLine(conn: Connection, line: string)
 		endif
 
 		if len(paths) == 1 || empty(paths[1])
-			RsyncFile(conn, false, "", local_file)
+			RsyncFile(conn, false, local_file, "")
 		elseif len(paths) == 2
-			RsyncFile(conn, false, paths[1], local_file)
+			RsyncFile(conn, false, local_file, paths[1])
 		else
 			throw $"error: put expects 1 or 2 arguments, got {len(paths)}"
 		endif
@@ -780,8 +780,8 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 	if job_status(j) ==# 'run' | scp_ops->add(scp_op) | endif
 enddef
 
-def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: string)
-	RsyncFiles(conn, get, [remote_path], local_path)
+def RsyncFile(conn: Connection, get: bool, path: string, target_path: string)
+	RsyncFiles(conn, get, [path], target_path)
 enddef
 
 def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: string)
