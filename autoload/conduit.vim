@@ -1225,6 +1225,7 @@ def OpenConduitControlMaster(conn: Connection): number
 enddef
 
 export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: string)
+	const win_to_use = win_getid()
 	const prefix = deploy_only ? "ConduitDeploy" : "ConduitOpen"
 
 	var notif = notifier.StartLoading($"Connecting")
@@ -1350,17 +1351,25 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					const hidden = term_options->get('hidden', false)
 					if !hidden
 						var spawn_cmd: string
-						if !curwin && ! term_options->get('curwin', false)
-							spawn_cmd = (mods =~ 'tab') ? 'tabnew' : 'split'
+						if !curwin 
+							if !term_options->get('curwin', false)
+								spawn_cmd = (mods =~ 'tab') ? 'tabnew' : 'split'
+							endif
+							execute mods .. ' ' .. spawn_cmd .. ' | enew'
 						endif
-						execute mods .. ' ' .. spawn_cmd .. ' | enew'
 					endif
 
-					const term_bufnr = term_start(
-						ssh_cmd,
-						term_options->extend({ term_name: term_name, curwin: !hidden })
-					)
-					conn.AddTermByBufNr(term_bufnr)
+					const currwin = win_getid()
+					if win_gotoid(win_to_use)
+						const term_bufnr = term_start(
+							ssh_cmd,
+							term_options->extend({ term_name: term_name, curwin: !hidden })
+						)
+						win_gotoid(currwin)
+						conn.AddTermByBufNr(term_bufnr)
+					else
+						throw $'conduit: could not open terminal in window {win_to_use}'
+					endif
 
 					# User a timer for the success message since the ssh
 					# connection is already authenticated, and the previous
@@ -1508,8 +1517,10 @@ enddef
 
 # ── Vim Command Interface ────────────────────────────────────────────────────
 
-export def ConduitCmd(deploy_only: bool, curwin: bool, mods: string, ...args: list<string>)
+export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list<string>)
 	if empty(args) | return | endif
+
+	const curwin = bang || index(args, '++curwin') > 0
 
 	const cmd = args[0]
 	var cmd_args = ""
