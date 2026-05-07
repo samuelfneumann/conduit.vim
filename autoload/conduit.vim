@@ -1225,7 +1225,7 @@ def OpenConduitControlMaster(conn: Connection): number
 enddef
 
 export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: string)
-	const win_to_use = win_getid()
+	var win_to_use = win_getid()
 	const prefix = deploy_only ? "ConduitDeploy" : "ConduitOpen"
 
 	var notif = notifier.StartLoading($"Connecting")
@@ -1356,6 +1356,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 								spawn_cmd = (mods =~ 'tab') ? 'tabnew' : 'split'
 							endif
 							execute mods .. ' ' .. spawn_cmd .. ' | enew'
+							win_to_use = win_getid()
 						endif
 					endif
 
