@@ -77,12 +77,16 @@ def FormatMsg(msg: string, include_ellipsis: bool): string
 	return msg
 enddef
 
-def ApplyHighlight(winid: number, text: string)
+def ApplyHighlight(winid: number, linenr: number=1)
     var bufnr = winbufnr(winid)
-    if bufnr == -1 || empty(text) | return | endif
+    if bufnr == -1 | return | endif
+	if linenr > line("$", winid) | return | endif
+
+	const text = getbufline(winbufnr(winid), linenr)[0]
+	if empty(text) | return | endif
 
     # Clear any existing highlights on the first line
-    prop_clear(1, 1, {bufnr: bufnr})
+    prop_clear(linenr, 1, {bufnr: bufnr})
 
     # Find the FIRST occurrence of any of the target symbols.
     # In ASCII mode, we are more restrictive to avoid highlighting characters in words.
@@ -113,7 +117,7 @@ def ApplyHighlight(winid: number, text: string)
 
     if prop_type != ""
         # Columns are 1-based in Vim, so we add 1 to start_byte
-        prop_add(1, start_byte + 1, { 
+        prop_add(linenr, start_byte + 1, { 
             length: end_byte - start_byte, 
             type: prop_type,
             bufnr: bufnr
@@ -247,7 +251,7 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
         # Use popup_notification for ephemeral messages that close on keypress
         winid = popup_notification(msg, default_opts)
     endif
-    ApplyHighlight(winid, msg)
+    ApplyHighlight(winid)
     
     # Track the latest message for the history log
     notif_texts[string(winid)] = in_msg
@@ -264,7 +268,7 @@ export def Modify(winid: number, in_msg: string)
 		var msg = FormatMsg(in_msg, true)
 
         popup_settext(winid, msg)
-        ApplyHighlight(winid, msg)
+        ApplyHighlight(winid)
         notif_texts[string(winid)] = in_msg # Update the history tracker
         UpdatePositions() 
     endif
@@ -365,6 +369,10 @@ export def ShowHistory()
     execute('botright :10new')
     setlocal buftype=nofile bufhidden=wipe noswapfile
     setline(1, history)
+
+	for l in range(line("$"))
+		ApplyHighlight(win_getid(), l + 1)
+	endfor
     
     # Optional: Highlight the timestamps
     syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
