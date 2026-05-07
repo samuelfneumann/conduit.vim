@@ -868,7 +868,7 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 	StartTransferJob(
 		conn,
 		get,
-		get ? 'mget' : 'mput',
+		get ? 'get' : 'put',
 		scp_cmd,
 		notif_suffix,
 		get ? target_path : paths->join(", "),
