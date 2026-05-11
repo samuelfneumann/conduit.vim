@@ -608,7 +608,7 @@ def OnLine(conn: Connection, line: string)
 					FilteredMenu(
 						matches,
 						(selected) => {
-							RsyncFile(conn, false, remote_file, selected)
+							RsyncFile(conn, false, selected, remote_file)
 						},
 						"Select Files to Upload"
 					)
@@ -616,7 +616,7 @@ def OnLine(conn: Connection, line: string)
 					MultiChoicePrompt(
 						matches,
 						(selected) => {
-							RsyncFile(conn, false, remote_file, selected)
+							RsyncFile(conn, false, selected, remote_file)
 						},
 						"Select Files to Upload"
 					)
