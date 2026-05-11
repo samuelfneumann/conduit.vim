@@ -532,6 +532,14 @@ def PathSep(): string
    return has('win32') ? '\' : '/'
 enddef
 
+def ExpandLocalGlob(pattern: string): list<string>
+	if empty(pattern)
+		return []
+	endif
+
+	return glob(pattern, false, true)
+enddef
+
 def OnLine(conn: Connection, line: string)
 	var op_path = trim(line)->split(g:conduit_sep)
 
@@ -600,7 +608,7 @@ def OnLine(conn: Connection, line: string)
 					FilteredMenu(
 						matches,
 						(selected) => {
-							RsyncFile(conn, false, remote_file, selected)
+							RsyncFile(conn, false, selected, remote_file)
 						},
 						"Select Files to Upload"
 					)
@@ -608,7 +616,7 @@ def OnLine(conn: Connection, line: string)
 					MultiChoicePrompt(
 						matches,
 						(selected) => {
-							RsyncFile(conn, false, remote_file, selected)
+							RsyncFile(conn, false, selected, remote_file)
 						},
 						"Select Files to Upload"
 					)
@@ -619,12 +627,30 @@ def OnLine(conn: Connection, line: string)
 		endif
 
 		if len(paths) == 1 || empty(paths[1])
-			RsyncFile(conn, false, "", local_file)
+			RsyncFile(conn, false, local_file, "")
 		elseif len(paths) == 2
-			RsyncFile(conn, false, paths[1], local_file)
+			RsyncFile(conn, false, local_file, paths[1])
 		else
 			throw $"error: put expects 1 or 2 arguments, got {len(paths)}"
 		endif
+	elseif op == "mget"
+		const remote_files = filter(copy(paths), (_, v) => !empty(v))
+		if !empty(remote_files)
+			RsyncFiles(conn, true, remote_files, getcwd())
+		endif
+	elseif op == "mput"
+		if empty(paths)
+			throw "error: mput expects at least 1 argument"
+		endif
+
+		const remote_path = len(paths) > 1 ? paths[1] : ""
+		const local_files = ExpandLocalGlob(paths[0])
+		if empty(local_files)
+			Warn($"Could not find file {paths[0]}")
+			return
+		endif
+
+		RsyncFiles(conn, false, local_files, remote_path)
 	else
 		throw $"error: invalid operation {op}"
 	endif
@@ -687,98 +713,28 @@ def OpenFile(conn: Connection, op: string, remote_path: string)
 
 enddef
 
-def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: string)
-	const host = conn.host
-	const op = get ? 'get' : 'put'
-
-	var scp_cmd: list<string>
-	var notif_prefix: string
-	var notif_suffix: string
-	if get
-		notif_prefix = "get"
-		notif_suffix = $"{host}:{remote_path} → {local_path}"
-
-		if executable('rsync')
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
-
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--rsh",
-				rsh_cmd,
-				$"{host}:{remote_path}",
-				local_path,
-			]
-		elseif executable('scp')
-			scp_cmd = [
-				'scp', 
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			scp_cmd->extend([$'{host}:{remote_path}', local_path])
-		else
-			throw "error rsync or scp not available"
-		endif
-
-	else # put
-		notif_prefix = "put"
-		notif_suffix = $"{local_path} → {host}:{remote_path}"
-
-		if executable('rsync')
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
-
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--inplace",
-				"--rsh",
-				rsh_cmd,
-				local_path,
-				$"{host}:{remote_path}",
-			]
-		elseif executable('scp')
-			scp_cmd = [
-				'scp', 
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			scp_cmd->extend([local_path, $'{host}:{remote_path}'])
-		else
-			throw "error rsync or scp not available"
-		endif
-	endif
+def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<string>, notif_suffix: string, local_file: string, remote_file: string)
 
 	if g:conduit_verbose && !empty(scp_cmd) | echom $"Conduit(sh/{op}):" scp_cmd->join(' ') | endif
 
-	const notif = notifier.StartProgress($'{notif_prefix} [0.00 KB/s] {notif_suffix}')
+	const notif = notifier.StartProgress($'{op} [0.00 KB/s] {notif_suffix}')
 
-	# Debounce time for updating progress bar
-	const debounce = 0.750 # seconds
+	# Throttle time for updating progress bar
+	const throttle = 1.250 # seconds
 	var last_run = reltime()
 
 	var scp_op: Op
 	var scp_ops = get ? g:conduit_get_ops : g:conduit_put_ops
 
-	var current = 0
 	var pbar_msg: string
 	const j = job_start(
 		scp_cmd, {
 		out_io: "pipe",
 		out_mode: "raw",
 		out_cb: (_, msg) => {
-			# Debounce
+			# Throttle
 			const seconds_since_last_run = reltime(last_run)->reltimefloat()
-			if seconds_since_last_run < debounce | return | endif
+			if seconds_since_last_run < throttle | return | endif
 			last_run = reltime()
 
 			var latest: string
@@ -794,7 +750,7 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 
 			# Update progress bar
 			if percent > 0 && !empty(speed)
-				pbar_msg = $'{notif_prefix} [{speed}] {notif_suffix}'
+				pbar_msg = $'{op} [{speed}] {notif_suffix}'
 				notifier.UpdateProgress(
 					notif,
 					percent,
@@ -807,10 +763,10 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 			if code == 0
 				# Briefly show the full, final progress bar and success
 				# message, then dismiss
-				notifier.UpdateProgress(notif, 100, 100, $"✓ {notif_prefix} [success] {notif_suffix}")
+				notifier.UpdateProgress(notif, 100, 100, $"✓ {op} [success] {notif_suffix}")
 				timer_start(3000, (_) => notifier.Dismiss(notif))
 			else
-				notifier.Modify(notif, $"× {notif_prefix} [failed (error: {code})] {notif_suffix}")
+				notifier.Modify(notif, $"× {op} [failed (error: {code})] {notif_suffix}")
 				timer_start(5000, (_) => notifier.Dismiss(notif))
 			endif
 
@@ -820,12 +776,108 @@ def RsyncFile(conn: Connection, get: bool, remote_path: string, local_path: stri
 		}}
 	)
 
-	scp_op = Op.From(get ? OpType.Get : OpType.Put, conn, j, local_path, remote_path)
+	scp_op = Op.From(get ? OpType.Get : OpType.Put, conn, j, local_file, remote_file)
 	if job_status(j) ==# 'run' | scp_ops->add(scp_op) | endif
 enddef
 
+def RsyncFile(conn: Connection, get: bool, path: string, target_path: string)
+	RsyncFiles(conn, get, [path], target_path)
+enddef
+
+def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: string)
+	if empty(paths)
+		return
+	endif
+
+	const host = conn.host
+	const source_count = len(paths)
+	const batch_label = source_count == 1 ? 'file' : 'files'
+
+	var scp_cmd: list<string>
+	if get
+		if executable('rsync')
+			var rsh_args = GetSshArgs(conn)
+			rsh_args->extend(['-S', conn.GetConduitControlPath()])
+			var rsh_cmd = ShellJoin(rsh_args)
+
+			scp_cmd = [
+				"rsync",
+				"-az",
+				"--info=progress2",
+				"--rsh",
+				rsh_cmd,
+			]
+			for remote_path in paths
+				scp_cmd->add($"{host}:{remote_path}")
+			endfor
+			scp_cmd->add(target_path)
+		elseif executable('scp')
+			scp_cmd = [
+				'scp',
+				'-q',
+				$'-o ControlPath={conn.GetConduitControlPath()}',
+				'-r',
+			]
+			scp_cmd->extend(GetScpArgs(conn))
+			for remote_path in paths
+				scp_cmd->add($'{host}:{remote_path}')
+			endfor
+			scp_cmd->add(target_path)
+		else
+			throw "error rsync or scp not available"
+		endif
+	else
+		if executable('rsync')
+			var rsh_args = GetSshArgs(conn)
+			rsh_args->extend(['-S', conn.GetConduitControlPath()])
+			var rsh_cmd = ShellJoin(rsh_args)
+
+			scp_cmd = [
+				"rsync",
+				"-az",
+				"--info=progress2",
+				"--inplace",
+				"--rsh",
+				rsh_cmd,
+			]
+			scp_cmd->extend(paths)
+			scp_cmd->add($"{host}:{target_path}")
+		elseif executable('scp')
+			scp_cmd = [
+				'scp',
+				'-q',
+				$'-o ControlPath={conn.GetConduitControlPath()}',
+				'-r',
+			]
+			scp_cmd->extend(GetScpArgs(conn))
+			scp_cmd->extend(paths)
+			scp_cmd->add($'{host}:{target_path}')
+		else
+			throw "error rsync or scp not available"
+		endif
+	endif
+
+	const notif_suffix = source_count == 1
+		? get
+			? $"{host}:{paths[0]} → {target_path}"
+			: $"{paths[0]} → {host}:{target_path}"
+		: get
+			? $"{source_count} {batch_label} → {target_path}"
+			: $"{source_count} {batch_label} → {host}:{target_path}"
+
+	StartTransferJob(
+		conn,
+		get,
+		get ? 'get' : 'put',
+		scp_cmd,
+		notif_suffix,
+		get ? target_path : paths->join(", "),
+		get ? paths->join(", ") : target_path,
+	)
+enddef
+
 const all_ops = [
-	"put", "get", "split", "sp",
+	"put", "get", "mget", "mput", "split", "sp",
 	"vsplit", "vsp", "vert split", "vertical split",
 	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
 ]
@@ -856,7 +908,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         '  case "$1" in',
 		$'    {quoted_joined_file_ops}) op="$1"; shift ;;',
         '  esac',
-        '  if [ "$#" -eq 0 ]; then',
+		'  if [ "$#" -eq 0 ]; then',
         $"    echo 'Usage: lvim [{quoted_joined_file_ops}] <file> [files...]' >&2",
         '    return 1',
         '  fi',
@@ -873,6 +925,12 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
 		'    else',
         $'      msg="$msg{g:conduit_sep}$(realpath $1){g:conduit_sep}"',
 		'    fi',
+		'  elif [ "$op" == "mget" ]; then',
+		'    for f in "$@"; do',
+		$'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
+		'    done',
+		'  elif [ "$op" == "mput" ]; then',
+		$'    msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
 		'  else',
         '    for f in "$@"; do',
         $'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
