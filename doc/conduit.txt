@@ -60,12 +60,6 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 :ConduitNotifications                                       *:ConduitNotifications*
         Show a history of conduit notifications in a scratch buffer.
 
-:Conduit mget {host} {pattern}                              *:Conduit mget*
-        Download all remote files on {host} matching {pattern}.
-
-:Conduit mput {host} {pattern}                              *:Conduit mput*
-        Upload all local files matching {pattern} to {host}.
-
 :ConduitStopGet {host} [{pattern}]                          *:ConduitStopGet*
         Stop ongoing 'get' transfers for {host}. Optional {pattern} filters
         by filename.
@@ -139,6 +133,8 @@ Operations:
 - edit, split, vsplit, tabe: Open {args...} file(s) in local Vim.
 - put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}.
 - get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}.
+- mget {pat}: Download remote files matching {pat}. If `{pat}` is not quoted, it will expand on the server and each individual file will be downloaded.
+- mput {pat}: Upload local files matching {pat}. `{pat}` must be quoted, otherwise it will be expanded before by the shell before Conduit can access it.
 
 If no operation is provided, |g:conduit_default_split| is used.
 
