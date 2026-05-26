@@ -327,6 +327,18 @@ const term_opts_with_value = [
 	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
 ]
 
+const modifiers = [
+	"tab",
+	"vert", "vertical",
+	"hor", "horizontal",
+	"lefta", "leftabove",
+	"abo", "aboveleft",
+	"rightb", "rightbelow",
+	"bel", "belowright",
+	"to", "topleft",
+	"bo", "botright",
+]
+
 const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
 
 def ParseTermOptions(opts: dict<any>): dict<any>
@@ -1768,11 +1780,21 @@ enddef
 
 export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
     const current_cmd = GetCurrentCmd(CmdLine, CursorPos)
-    const parts = split(current_cmd)
-	const cmd = len(parts) > 1 ? parts[1] : ""
+    var parts = split(current_cmd)
+
+	# Extract the Conduit command, 
+	var cmd: string = ""
+	if len(parts) > 1
+		if index(modifiers, parts[0]) >= 0
+			# Remove initial modifier from the Conduit command
+			parts = parts[1 : ]
+		endif
+		cmd = parts[1]
+	endif
 
     # Completing the sub-command (e.g., "Conduit op")
-    if current_cmd =~ '^Conduit!\? \+\S*$'
+	const mods = '\(' .. modifiers->join('\|') .. '\)\? \?'
+    if current_cmd =~ $'^{mods}Conduit!\? \+\S*$'
         var options = ["open", "exit", "deploy", "disconnect", "source", "notifications", "stop"]
 		if empty(ArgLead) | return options | endif
         return matchfuzzy(options, ArgLead)
@@ -1783,7 +1805,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		return ConduitHostComplHelper(current_cmd, ArgLead)
 
     # Completing the second argument for the other sub-commands.
-    elseif current_cmd =~ '^Conduit!\? \+\S\+ \+\S*$'
+	elseif current_cmd =~ $'^{mods}Conduit!\? \+\S\+ \+\S*$'
         if len(parts) >= 2
 			if cmd ==# "stop"
 				return ["get", "put", "*"]
@@ -1795,7 +1817,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
         endif
 
 	# Completing the third argument (e.g., "Conduit stop put myho")
-    elseif current_cmd =~ '^Conduit!\? \+\S\+ \+\S\+ \+\S*$' 
+    elseif current_cmd =~ $'^{mods}Conduit!\? \+\S\+ \+\S\+ \+\S*$' 
 		if cmd ==# "stop" # `Conduit stop put host`
 			const prefix = "Conduit" .. ToTitleCase(cmd)
 			const host = len(parts) >= 4 ? parts[3] : ""
@@ -1803,7 +1825,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		endif
 
 	# Completing the fourth argument (e.g., "Conduit stop get myhost iden")
-    elseif current_cmd =~ '^Conduit!\? \+\S\+ \+\S\+ \+\S\+ \+\S*$' 
+    elseif current_cmd =~ $'^{mods}Conduit!\? \+\S\+ \+\S\+ \+\S\+ \+\S*$' 
 		if cmd ==# "stop"
 			# First, check if there are any active hosts
 			const prefix = "Conduit" .. ToTitleCase(cmd)
