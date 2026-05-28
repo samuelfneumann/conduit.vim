@@ -66,6 +66,8 @@ $ lvim tabe file.txt      # Opens in a new tab
 
 # Bulk operations
 $ lvim *.py               # Opens all matching files locally
+$ lvim mget '*.log'        # Download all matching remote files
+$ lvim mput 'src/*.py'     # Upload matching local files to remote CWD
 
 # File Transfers
 $ lvim get log.txt        # "Fetch": Remote -> Local CWD
@@ -94,6 +96,9 @@ If you run `lvim put my-local-file.txt` but that file isn't in your local direct
 1. Fuzzy search your local project (up to `g:conduit_put_max_depth`).
 2. If one match is found, it uploads it immediately.
 3. If multiple matches are found, it opens a menu in Vim for you to choose which one(s) to send.
+
+`lvim mput` skips fuzzy matching and uploads every local file that matches the
+glob you pass in. Quote the glob so the remote shell does not expand it first.
 
 ## ⚙️ Advanced Configuration
 
