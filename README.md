@@ -41,6 +41,11 @@ Update your help tags:
 :helptags ~/.vim/pack/plugins/start/conduit.vim/doc
 ```
 
+Then, read the docs:
+```vim
+:help Conduit
+```
+
 ## 📋 Requirements
 
 | Feature | Local (Your Machine) | Remote (The Server) |
@@ -66,13 +71,15 @@ $ lvim tabe file.txt      # Opens in a new tab
 
 # Bulk operations
 $ lvim *.py               # Opens all matching files locally
-$ lvim mget '*.log'        # Download all matching remote files
-$ lvim mput 'src/*.py'     # Upload matching local files to remote CWD
+$ lvim mget '*.log'       # Download all matching remote files
+$ lvim mput 'src/*.py'    # Upload matching local files to remote CWD
 
 # File Transfers
 $ lvim get log.txt        # "Fetch": Remote -> Local CWD
 $ lvim put script.sh      # "Send":  Local -> Remote CWD
 ```
+
+By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the commands above work just as well by replacing `lvim` with `vim`. You can disable this by setting `g:conduit_overwrite_vim = 0`.
 
 ### SSH Options on `ConduitOpen`
 
