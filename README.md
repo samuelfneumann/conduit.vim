@@ -68,7 +68,7 @@ Then, read the docs:
 " Start an interactive SSH terminal and deploy lvim/vim aliases
 :Conduit open user@example.com
 
-" :Conduit open works with modifiers and bar!
+" `:Conduit open` works with modifiers and bar!
 :tab Conduit open user@example.com
 :topleft Conduit open user@example.com
 :bo vert Conduit open user@example.com
@@ -77,7 +77,9 @@ Then, read the docs:
 " Deploy the remote environment without opening a terminal
 :Conduit deploy user@example.com
 
-" Copy the source command for an existing connection
+" Copy the source command for an existing connection to your system clipboard.
+" If you use `:Conduit deploy user@example.com` then manually SSH, you can run
+" this command on the remote shell to activate the lvim/vim aliases.
 :Conduit source user@example.com
 
 " Show notification history
