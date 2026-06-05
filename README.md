@@ -4,7 +4,7 @@
 
 **Quick Start**:
 * Open Vim on your local machine.
-* Run `:ConduitOpen HOST`. A Vim terminal opens up with an SSH connection to `HOST`.
+* Run `:Conduit open HOST`. A Vim terminal opens up with an SSH connection to `HOST`.
 * Run `vim file` in the spawned Vim terminal and watch as the file on the remote SSH server magically open in your local vim instance.
 * Save the file with `:w` and watch as your local changes magically transfer to the SSH server.
 
@@ -19,7 +19,7 @@ Unlike other methods like mounting via SSHFS or using netrw directly, Conduit fo
 
 ## 🛠 How it Works (The "Conduit")
 
-1. **The Tunnel**: When you run `:ConduitOpen`, Vim starts a local listener (using `socat` or `python`) and establishes an SSH reverse tunnel that maps a remote Unix socket to your local listener.
+1. **The Tunnel**: When you run `:Conduit open`, Vim starts a local listener (using `socat` or `python`) and establishes an SSH reverse tunnel that maps a remote Unix socket to your local listener.
 2. **The Injector**: Conduit generates a specialized shell script and uploads it to the remote `/tmp`. This script defines the `lvim` command.
 3. **The Signal**: When you type `lvim file.txt` on the server, it sends a small packet through the Unix socket.
 4. **The Action**: Your local Vim receives the signal and decides what to do:
@@ -43,7 +43,7 @@ Update your help tags:
 
 Then, read the docs:
 ```vim
-:help Conduit
+:help conduit
 ```
 
 ## 📋 Requirements
@@ -58,6 +58,42 @@ Then, read the docs:
 > **Note**: Your SSH server must allow Unix socket forwarding (default in OpenSSH). If you hit issues, ensure `AllowStreamLocalForwarding yes` is in the remote `/etc/ssh/sshd_config`.
 
 ## 📖 Deep Dive: Usage
+
+### The `:Conduit` command
+
+`:Conduit` is the general Vim command interface. It always takes an `op`, like
+`:Conduit op`.
+
+```vim
+" Start an interactive SSH terminal and deploy lvim/vim aliases
+:Conduit open user@example.com
+
+" :Conduit open works with modifiers and bar!
+:tab Conduit open user@example.com
+:topleft Conduit open user@example.com
+:bo vert Conduit open user@example.com
+:tabnew | Conduit open ++J user@example1.com user@example2.com
+
+" Deploy the remote environment without opening a terminal
+:Conduit deploy user@example.com
+
+" Copy the source command for an existing connection
+:Conduit source user@example.com
+
+" Show notification history
+:Conduit notifications
+
+" Stop a transfer for a connection
+:Conduit stop get user@example.com '*.log'
+:Conduit stop put user@example.com '*.log'
+
+" Clean up or force-close a connection
+:Conduit exit user@example.com
+:Conduit disconnect user@example.com
+```
+
+`open` and `deploy` accept SSH options with the `++` prefix, see [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
+
 
 ### The `lvim` command
 
@@ -81,13 +117,13 @@ $ lvim put script.sh      # "Send":  Local -> Remote CWD
 
 By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the commands above work just as well by replacing `lvim` with `vim`. You can disable this by setting `g:conduit_overwrite_vim = 0`.
 
-### SSH Options on `ConduitOpen`
+### SSH Options
 
-`ConduitOpen` accepts SSH flags before the destination host using a `++`
-prefix. The most useful case is jump hosts:
+`:Conduit open` and `:Conduit deploy` accepts SSH flags before the destination
+host using a `++` prefix. The most useful case is jump hosts:
 
 ```vim
-:ConduitOpen ++J user1@host1 user2@host2
+:Conduit open ++J user1@host1 user2@host2
 ```
 
 That maps to `ssh -J user1@host1 user2@host2` and is threaded through the
