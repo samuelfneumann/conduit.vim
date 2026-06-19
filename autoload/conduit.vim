@@ -1606,8 +1606,12 @@ export def ConduitCopySourceCmd(host: string)
 	endif
 enddef
 
-export def ShowHistory()
-	notifier.ShowHistory()
+export def ConduitNotificationCmd(cmd: string)
+	if cmd ==# "history"
+		notifier.ShowHistory()
+	elseif cmd ==# "dismiss"
+		notifier.DismissAll()
+	endif
 enddef
 
 # ── Vim Command Interface ────────────────────────────────────────────────────
@@ -1659,7 +1663,7 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 		endif
 
 	elseif cmd ==# "notifications" # :Conduit notifications
-		notifier.ShowHistory()
+		ConduitNotificationCmd(args[1])
 
 	elseif cmd ==# "stop" # :Conduit stop OP HOST PATTERN
 		if len(args) != 4
@@ -1762,6 +1766,12 @@ export def ConduitHostComplHelper(current_cmd: string, pattern: string): list<st
     return matchfuzzy(options, pattern)
 enddef
 
+export def ConduitNotificationComplHelper(current_cmd: string, pattern: string): list<string>
+    var options = ['history', 'dismiss']
+	if empty(pattern) | return options | endif
+    return matchfuzzy(options, pattern)
+enddef
+
 export def ConduitHostCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
     var current_cmd = GetCurrentCmd(CmdLine, CursorPos)
 	return ConduitHostComplHelper(current_cmd, ArgLead)
@@ -1827,6 +1837,8 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		return ConduitHostAndOptionCompl(ArgLead, CmdLine, CursorPos)
     elseif  cmd ==# "deploy"
 		return ConduitHostComplHelper(current_cmd, ArgLead)
+    elseif  cmd ==# "notifications"
+		return ConduitNotificationComplHelper(current_cmd, ArgLead)
 
     # Completing the second argument for the other sub-commands.
 	elseif current_cmd =~ $'^{mods}Conduit!\? \+\S\+ \+\S*$'

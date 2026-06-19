@@ -280,6 +280,12 @@ export def Dismiss(winid: number)
     endif
 enddef
 
+export def DismissAll()
+	for notif in active_notifs
+		Dismiss(notif)
+	endfor
+enddef
+
 export def StartLoading(msg: string, opts: dict<any> = {}): number
     var initial_msg = spinner_frames[0] .. " " .. msg
     
