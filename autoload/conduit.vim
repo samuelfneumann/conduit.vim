@@ -2,6 +2,28 @@ vim9script
 
 import autoload 'notifier.vim'
 
+# ── Utility Helpers ──────────────────────────────────────────────────────────
+
+def GetSuccessTimeout(): number
+	const default = 5000
+	const timeout = get(g:, 'conduit_success_timeout', default)
+	if type(timeout) != v:t_number
+		echoerr "expected g:conduit_success_timeout to be a number"
+		return default
+	endif
+	return timeout
+enddef
+
+def GetFailureTimeout(): number
+	const default = 5000
+	const timeout = get(g:, 'conduit_failure_timeout', default)
+	if type(timeout) != v:t_number
+		echoerr "expected g:conduit_failure_timeout to be a number"
+		return default
+	endif
+	return timeout
+enddef
+
 # ── Classes & Core Types ─────────────────────────────────────────────────────
 export class Connection
 	static var host2shell: dict<string> = g:conduit_host2shell
@@ -777,10 +799,10 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 				# Briefly show the full, final progress bar and success
 				# message, then dismiss
 				notifier.UpdateProgress(notif, 100, 100, $"✓ {op} [success] {notif_suffix}")
-				timer_start(3000, (_) => notifier.Dismiss(notif))
+				timer_start(GetSuccessTimeout(), (_) => notifier.Dismiss(notif))
 			else
 				notifier.Modify(notif, $"× {op} [failed (error: {code})] {notif_suffix}")
-				timer_start(5000, (_) => notifier.Dismiss(notif))
+				timer_start(GetFailureTimeout(), (_) => notifier.Dismiss(notif))
 			endif
 
 			# Remove the completed op from the list of stored operations
@@ -1339,7 +1361,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			const open_control_master_err_code = OpenConduitControlMaster(conn)
 			if open_control_master_err_code != 0
 				notifier.StopLoading(notif, $"× Could not open control master (ssh error: {open_control_master_err_code})")
-				timer_start(5000, (__) => notifier.Dismiss(notif))
+				timer_start(GetFailureTimeout(), (__) => notifier.Dismiss(notif))
 				return 
 			endif
 
@@ -1349,7 +1371,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 
 			if !EnsureListener(conn)
 				notifier.StopLoading(notif, $"× Could not start listener")
-				timer_start(5000, (__) => notifier.Dismiss(notif))
+				timer_start(GetFailureTimeout(), (__) => notifier.Dismiss(notif))
 				return 
 			endif
 
@@ -1386,7 +1408,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 									ConduitCopySourceCmd(GetConnectionsDictKey(conn))
 								else
 									notifier.StopLoading(notif, $"× Failed (error: {code})")
-									timer_start(5000, (____) => notifier.Dismiss(notif))
+									timer_start(GetFailureTimeout(), (____) => notifier.Dismiss(notif))
 								endif
 								redraw
 							}}
@@ -1448,13 +1470,13 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					# connection is already authenticated, and the previous
 					# message will only be shown briefly otherwise
 					timer_start(1000, (____) => notifier.StopLoading(notif, $"✓ Success"))
-					timer_start(3000, (_____) => notifier.Dismiss(notif))
+					timer_start(GetSuccessTimeout(), (_____) => notifier.Dismiss(notif))
 					redraw
 				},
 				() => {
 					notifier.StopLoading(notif, $"× Failed")
 					MaybeCleanup(conn)
-					timer_start(5000, (____) => notifier.Dismiss(notif))
+					timer_start(GetFailureTimeout(), (____) => notifier.Dismiss(notif))
 					redraw
 				},
 			) 
@@ -1471,7 +1493,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 				redraw
 			else
 				notifier.StopLoading(notif, $"× Could not clean up stale files on remote, exiting.")
-				timer_start(5000, (_) => notifier.Dismiss(notif))
+				timer_start(GetFailureTimeout(), (_) => notifier.Dismiss(notif))
 				redraw
 			endif
 		})
@@ -1566,7 +1588,7 @@ export def ConduitDisconnectCmd(host: string)
 		const notif = notifier.StartLoading($"Disconnecting from {host}")
 		connections[key].Disconnect()
 		notifier.StopLoading(notif, $"✓ Disconnected from {host}")
-		timer_start(3000, (_) => notifier.Dismiss(notif))
+		timer_start(GetSuccessTimeout(), (_) => notifier.Dismiss(notif))
 	else
         Warn($'No host "{host}"')
 	endif
