@@ -538,6 +538,7 @@ const open_file_ops = [
 	"split", "sp",
 	"vsplit", "vsp", "vert split", "vertical split",
 	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
+	"arga", "argadd",
 ]
 
 def PathSep(): string
@@ -892,6 +893,7 @@ const all_ops = [
 	"put", "get", "mget", "mput", "split", "sp",
 	"vsplit", "vsp", "vert split", "vertical split",
 	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
+	"arga", "argadd",
 ]
 
 def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void): job
