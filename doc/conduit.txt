@@ -121,6 +121,14 @@ g:conduit_borderchars                                       *g:conduit_bordercha
         `['─', '│', '─', '│', '╭', '╮', '╯', '╰']` (Unicode)
         `['-', '|', '-', '|', '+', '+', '+', '+']` (ASCII)
 
+g:conduit_success_timeout
+	The number of milliseconds to persist success notifications.
+        Default: 5000
+
+g:conduit_failure_timeout
+	The number of milliseconds to persist failure notifications.
+        Default: 5000
+
 ==============================================================================
 4. Remote Command (lvim)                                    *conduit-lvim*
 
