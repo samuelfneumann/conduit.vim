@@ -121,6 +121,14 @@ g:conduit_borderchars                                       *g:conduit_bordercha
         `['─', '│', '─', '│', '╭', '╮', '╯', '╰']` (Unicode)
         `['-', '|', '-', '|', '+', '+', '+', '+']` (ASCII)
 
+g:conduit_success_timeout
+	The number of milliseconds to persist success notifications.
+        Default: 5000
+
+g:conduit_failure_timeout
+	The number of milliseconds to persist failure notifications.
+        Default: 5000
+
 ==============================================================================
 4. Remote Command (lvim)                                    *conduit-lvim*
 
@@ -130,7 +138,24 @@ following syntax:
 `lvim [op] {args...}`
 
 Operations:
-- edit, split, vsplit, tabe: Open {args...} file(s) in local Vim.
+- {op}: Open {args...} file(s) in local Vim. Available {op}s are:
+    - split
+    - sp
+    - vsplit
+    - vsp
+    - vert split
+    - vertical split
+    - tabe
+    - tabedit
+    - tabnew
+    - tab split
+    - tab sp
+    - tab vsplit
+    - tab vert split
+    - tab vertical split
+    - tab vsp
+    - arga
+    - argadd
 - put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}.
 - get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}.
 - mget {pat}: Download remote files matching {pat}. If `{pat}` is not quoted, it will expand on the server and each individual file will be downloaded.
@@ -141,10 +166,10 @@ If no operation is provided, |g:conduit_default_split| is used.
 For `put`, if the local path is not found, conduit will attempt a fuzzy
 search in the local CWD up to |g:conduit_put_max_depth|.
 
-`ConduitOpen` and `ConduitDeploy` also accept SSH options before the host
+`Conduit open` and `Conduit deploy` also accept SSH options before the host
 using a `++` prefix:
 
-`:ConduitOpen ++J user1@host1 user2@host2`
+`:Conduit open ++J user1@host1 user2@host2`
 
 This is translated to `ssh -J user1@host1 user2@host2` and applies to the
 entire Conduit session.
@@ -171,6 +196,14 @@ g:notifier_wrap                                             *g:notifier_wrap*
         Default: true
 
 They automatically adapt to `+multi_byte` support.
+
+You can view the notification history using
+
+`:Conduit notifications history`
+
+or dismiss all active notifications using
+
+`:Conduit notifications dismiss`
 
 ==============================================================================
  vim:tw=78:ts=8:ft=help:norl:
