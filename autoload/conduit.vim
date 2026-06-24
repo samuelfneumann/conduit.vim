@@ -24,6 +24,49 @@ def GetFailureTimeout(): number
 	return timeout
 enddef
 
+# ── Constants ────────────────────────────────────────────────────────────────
+
+const modifiers = [
+	"tab",
+	"vert", "vertical",
+	"hor", "horizontal",
+	"lefta", "leftabove",
+	"abo", "aboveleft",
+	"rightb", "rightbelow",
+	"bel", "belowright",
+	"to", "topleft",
+	"bo", "botright",
+]
+
+const open_file_ops = [
+	"split", "sp",
+	"vsplit", "vsp", "vert", "vertical",
+	"tabe", "tabedit", "tabnew", "tab",
+	"arga", "argadd",
+]
+
+# All supported `lvim` ops
+const all_ops = ["put", "get", "mget", "mput"]->extend(open_file_ops)->extend(modifiers)
+
+# ssh options that take arguments
+const ssh_opts_with_value = [
+	'B', 'b', 'c', 'D', 'E', 'F', 'I', 'i', 'J', 'l', 'L', 'm', 'O', 'o',
+	'p', 'Q', 'R', 'S', 'W', 'w',
+]
+
+# Vim-terminal options
+const term_opts = [
+	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
+]
+
+# Vim-terminal options that take arguments
+const term_opts_with_value = [
+	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
+]
+
+const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
+
+
 # ── Classes & Core Types ─────────────────────────────────────────────────────
 export class Connection
 	static var host2shell: dict<string> = g:conduit_host2shell
@@ -336,33 +379,6 @@ def GetSshCommandString(conn: Connection, head_args: list<string>, tail_args: li
 	return ShellJoin(GetSshCommandArgs(conn, head_args, tail_args))
 enddef
 
-const ssh_opts_with_value = [
-	'B', 'b', 'c', 'D', 'E', 'F', 'I', 'i', 'J', 'l', 'L', 'm', 'O', 'o',
-	'p', 'Q', 'R', 'S', 'W', 'w',
-]
-
-const term_opts = [
-	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
-]
-
-const term_opts_with_value = [
-	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
-]
-
-const modifiers = [
-	"tab",
-	"vert", "vertical",
-	"hor", "horizontal",
-	"lefta", "leftabove",
-	"abo", "aboveleft",
-	"rightb", "rightbelow",
-	"bel", "belowright",
-	"to", "topleft",
-	"bo", "botright",
-]
-
-const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
-
 def ParseTermOptions(opts: dict<any>): dict<any>
 	var new_opts = {}
 	for key in keys(opts)
@@ -556,13 +572,6 @@ def EnsureListener(conn: Connection): bool
 	return true
 enddef
 
-const open_file_ops = [
-	"split", "sp",
-	"vsplit", "vsp", "vert split", "vertical split",
-	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
-	"arga", "argadd",
-]
-
 def PathSep(): string
    return has('win32') ? '\' : '/'
 enddef
@@ -578,24 +587,40 @@ enddef
 def OnLine(conn: Connection, line: string)
 	var op_path = trim(line)->split(g:conduit_sep)
 
-	var op: string
+	var op: list<string> = []
 	var paths: list<string>
 	if len(op_path) == 1
 		throw $"error: expected 'op:path' format, got {line}"
 	endif
 
-	op = op_path[0]
-	paths = op_path[1 : ]
+	const opind = index(op_path, '--') 
+	if opind > 0
+		op = op_path[ : opind - 1]
+		paths = op_path[opind + 1 : ]
+	else
+		# Loop through arguments, consuming ops until the first non-op argument
+		var ind = 0
+		for _op in op_path
+			if index(all_ops, _op) > 0 | ind += 1 | endif
+		endfor
+
+		if ind > 0 
+			op = op_path[ : ind - 1] 
+		else
+			throw 'error: no ops specified'
+		endif 
+		paths = op_path[ind : ]
+	endif
+
+	for _op in op
+		if index(open_file_ops, _op) < 0
+			throw $"error: invalid operation {op}"
+		endif
+	endfor
 
 	if empty(paths) | return | endif
 
-	if index(open_file_ops, op) > -1
-		var i = 0
-		for path in paths
-			# timer_start(0, (_) => OpenFile(conn, op, path))
-			OpenFile(conn, op, path)
-		endfor
-	elseif op == "get"
+	if len(op) == 1 && op[0] == "get"
 		if len(paths) == 1 || empty(paths[1])
 			RsyncFile(conn, true, paths[0], getcwd())
 		elseif len(paths) == 2
@@ -606,7 +631,7 @@ def OnLine(conn: Connection, line: string)
 		else
 			throw $"error: get expects 1 or 2 arguments, got {len(paths)}"
 		endif
-	elseif op == "put"
+	elseif len(op) == 1 && op[0] == "put"
 		var local_file = expand(paths[0])
 
 		const PutWarn = () => Warn($"Could not find file {local_file}")
@@ -668,12 +693,12 @@ def OnLine(conn: Connection, line: string)
 		else
 			throw $"error: put expects 1 or 2 arguments, got {len(paths)}"
 		endif
-	elseif op == "mget"
+	elseif len(op) == 1 && op[0] == "mget"
 		const remote_files = filter(copy(paths), (_, v) => !empty(v))
 		if !empty(remote_files)
 			RsyncFiles(conn, true, remote_files, getcwd())
 		endif
-	elseif op == "mput"
+	elseif len(op) == 1 && op[0] == "mput"
 		if empty(paths)
 			throw "error: mput expects at least 1 argument"
 		endif
@@ -686,6 +711,12 @@ def OnLine(conn: Connection, line: string)
 		endif
 
 		RsyncFiles(conn, false, local_files, remote_path)
+	elseif !empty(op)
+		var i = 0
+		for path in paths
+			# timer_start(0, (_) => OpenFile(conn, op, path))
+			OpenFile(conn, op, path)
+		endfor
 	else
 		throw $"error: invalid operation {op}"
 	endif
@@ -693,7 +724,8 @@ enddef
 
 # ── Remote File Operations ───────────────────────────────────────────────────
 
-def OpenFile(conn: Connection, op: string, remote_path: string)
+def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
+	const op = oper->join(' ')
 	var host = conn.host
 
     var target: string
@@ -911,13 +943,6 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 	)
 enddef
 
-const all_ops = [
-	"put", "get", "mget", "mput", "split", "sp",
-	"vsplit", "vsp", "vert split", "vertical split",
-	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
-	"arga", "argadd",
-]
-
 def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void): job
 	const quoted_joined_file_ops = mapnew(all_ops, (_, v) => $'"{v}"')->join('|')
 
@@ -939,40 +964,71 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         '    return 1',
         '  fi',
         '}',
-        'lvim() {',
-        $'  local op="{g:conduit_default_split}"',
+        '_is_conduit_op() {',
         '  case "$1" in',
-		$'    {quoted_joined_file_ops}) op="$1"; shift ;;',
+		$'    {quoted_joined_file_ops}) return 0 ;;',
+        '    *) return 1 ;;',
         '  esac',
-		'  if [ "$#" -eq 0 ]; then',
+        '}',
+        'lvim() {',
+        '  # Find -- if present',
+        '  local dash_dash_idx=-1',
+        '  for ((i=1; i<=$#; i++)); do',
+        '    if [ ' .. '"${!i}"' .. ' = "--" ]; then',
+        '      dash_dash_idx=$i',
+        '      break',
+        '    fi',
+        '  done',
+        '',
+        '  # Consume operations from the start',
+        '  local -a consumed_ops=()',
+        '  if [ $dash_dash_idx -gt 0 ]; then',
+        '    # Everything before -- are ops',
+        '    for ((i=1; i<dash_dash_idx; i++)); do',
+        '      consumed_ops+=(' .. '"${!i}"' .. ')',
+        '    done',
+        '    # Remove everything up to and including --',
+        '    for ((i=0; i<dash_dash_idx; i++)); do',
+        '      shift',
+        '    done',
+        '  else',
+        '    # Consume ops until we hit the first non-op',
+        '    while [ $# -gt 0 ]; do',
+        '      if _is_conduit_op "$1"; then',
+        '        consumed_ops+=("$1")',
+        '        shift',
+        '      else',
+        '        break',
+        '      fi',
+        '    done',
+        '  fi',
+        '',
+        '  if [ "$#" -eq 0 ]; then',
         $"    echo 'Usage: lvim [{quoted_joined_file_ops}] <file> [files...]' >&2",
         '    return 1',
         '  fi',
-        '  local msg="$op"',
-		'  if [ "$op" == "put" ]; then',
-		'    if (( $# >= 2 )); then',
-		$'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(realpath "$2")"',
-		'    else',
-        $'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
-		'    fi',
-		'  elif [ "$op" == "get" ]; then',
-		'    if (( $# >= 2 )); then',
-		$'      msg="$msg{g:conduit_sep}$(realpath $1){g:conduit_sep}$2"',
-		'    else',
-        $'      msg="$msg{g:conduit_sep}$(realpath $1){g:conduit_sep}"',
-		'    fi',
-		'  elif [ "$op" == "mget" ]; then',
-		'    for f in "$@"; do',
-		$'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
-		'    done',
-		'  elif [ "$op" == "mput" ]; then',
-		$'    msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
-		'  else',
-        '    for f in "$@"; do',
-        $'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
+        '',
+        '  # Build message: ops first, then paths with realpath applied',
+        '  local msg=""',
+        '  if [ ' .. '${#consumed_ops[@]}' .. ' -gt 0 ]; then',
+        '    msg=' .. '"${consumed_ops[0]}"',
+        '    for ((i=1; i<' .. '${#consumed_ops[@]}' .. '; i++)); do',
+        '      msg="$msg' .. $'{g:conduit_sep}' .. '${consumed_ops[$i]}"',
         '    done',
-		'  fi',
-        # '  echo "lvim $msg"', # For testing
+        '  else',
+        $'    msg="{g:conduit_default_split}"',
+        '  fi',
+        '',
+        '  # Add -- separator if it was present in original args',
+        '  if [ $dash_dash_idx -gt 0 ]; then',
+        $'    msg="$msg{g:conduit_sep}--"',
+        '  fi',
+        '',
+        '  # Add paths with realpath',
+        '  for arg in "$@"; do',
+        $'    msg="$msg{g:conduit_sep}$(realpath "$arg")"',
+        '  done',
+        '',
         '  _lvim_send "$msg"',
         '}',
         "source ${rcfiles[$(basename $SHELL)]}",
@@ -1816,7 +1872,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
     const current_cmd = GetCurrentCmd(CmdLine, CursorPos)
     var parts = split(current_cmd)
 
-	# Extract the Conduit command, 
+	# Extract the Conduit command
 	var cmd: string = ""
 	if len(parts) > 1
 		if index(modifiers, parts[0]) >= 0
