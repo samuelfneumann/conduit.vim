@@ -604,7 +604,7 @@ def ParseOpsAndPaths(op_path: list<string>): tuple<list<string>, list<string>>
 		# Loop through arguments, consuming ops until the first non-op argument
 		var ind = 0
 		for _op in op_path
-			if index(all_ops, _op) > 0 | ind += 1 | endif
+			if index(all_ops, _op) >= 0 | ind += 1 | endif
 		endfor
 
 		if ind > 0 
@@ -1041,7 +1041,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         '    return 1',
         '  fi',
         '',
-        '  # Build message: ops first, then paths with realpath applied',
+        '  # Build message: ops first, then paths',
         '  local msg=""',
         '  if [ ' .. '${#consumed_ops[@]}' .. ' -gt 0 ]; then',
         '    msg=' .. '"${consumed_ops[0]}"',
@@ -1057,9 +1057,18 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         $'    msg="$msg{g:conduit_sep}--"',
         '  fi',
         '',
-        '  # Add paths with realpath',
+        '  # Add paths, preserving local filenames for put/mput',
+        '  local use_raw_paths=0',
+        '  case " ${consumed_ops[*]} " in',
+        '    *" put "*|*" mput "*) use_raw_paths=1 ;;',
+        '  esac',
+        '',
         '  for arg in "$@"; do',
-        $'    msg="$msg{g:conduit_sep}$(realpath "$arg")"',
+        '    if [ "$use_raw_paths" -eq 1 ]; then',
+        '      msg="$msg' .. $'{g:conduit_sep}' .. '$arg"',
+        '    else',
+        $'      msg="$msg{g:conduit_sep}$(realpath "$arg")"',
+        '    fi',
         '  done',
         '',
         '  _lvim_send "$msg"',
