@@ -759,7 +759,11 @@ def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
 		endif
 
 		g:netrw_scp_cmd = scp_cmd
-		execute op .. ' ' .. fnameescape(target)
+		try
+			execute op .. ' ' .. fnameescape(target)
+		catch /E492/
+			throw $'conduit: could not run "execute {op} {fnameescape(target)}"'
+		endtry
 
 		if reset_netrw_scp_cmd
 			# Reset netrw scp command if needed
