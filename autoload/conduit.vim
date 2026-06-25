@@ -1,6 +1,7 @@
 vim9script
 
 import autoload 'notifier.vim'
+import autoload 'error.vim'
 
 # ── Utility Helpers ──────────────────────────────────────────────────────────
 
@@ -403,7 +404,7 @@ enddef
 def ParseConduitOpenArgs(args: string): dict<any>
 	var tokens = split(args)
 	if empty(tokens)
-		throw 'missing host'
+		error.Error.MissingHost.Format('missing host')
 	endif
 
 	var ssh_options: list<string> = []
@@ -412,7 +413,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	while idx < len(tokens) && tokens[idx] =~# '^++'
 		var token = tokens[idx][2 : ]
 		if empty(token)
-			throw 'invalid conduit option'
+			throw error.Error.InvalidConduitOption.Format("invalid conduit option")
 		endif
 
 		if token =~# '^--'
@@ -426,7 +427,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			const val = token[eq_idx + 1 : ]
 
 			if empty(flag) || empty(val)
-				throw 'invalid ssh option'
+				throw error.Error.InvalidSshOption.Format('invalid ssh option')
 			endif
 
 			if index(ssh_opts_with_value, token) >= 0
@@ -440,14 +441,18 @@ def ParseConduitOpenArgs(args: string): dict<any>
 
 		if index(ssh_opts_with_value, token) >= 0
 			if idx + 1 >= len(tokens)
-				throw $'ssh option ++{token} requires a value'
+				throw error.Error.SshOptionRequiresValue.Format(
+					$'ssh option ++{token} requires a value'
+				)
 			endif
 			ssh_options->extend([$'-{token}', tokens[idx + 1]])
 			idx += 2
 			continue
 		elseif index(term_opts_with_value, token) >= 0
 			if idx + 1 >= len(tokens)
-				throw $'term option ++{token} requires a value'
+				throw error.Error.TermOptionRequiresValue.Format(
+					$'term option ++{token} requires a value'
+				)
 			endif
 			term_options[token] = tokens[idx + 1]
 			idx += 2
@@ -463,7 +468,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	endwhile
 
 	if idx >= len(tokens)
-		throw 'missing host'
+		throw error.Error.MissingHost.Format('missing host')
 	endif
 
 	var host = tokens[idx]
@@ -475,7 +480,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	endif
 
 	if port == 0
-		throw 'invalid port'
+		throw error.Error.InvalidPort.Format('invalid port')
 	endif
 
 	return {
@@ -590,7 +595,9 @@ def OnLine(conn: Connection, line: string)
 	var op: list<string> = []
 	var paths: list<string>
 	if len(op_path) == 1
-		throw $"error: expected 'op:path' format, got {line}"
+		throw error.Error.InvalidOpPathFormat.Format(
+			$"expected 'op:path' format, got {line}"
+		)
 	endif
 
 	const opind = index(op_path, '--') 
@@ -607,14 +614,14 @@ def OnLine(conn: Connection, line: string)
 		if ind > 0 
 			op = op_path[ : ind - 1] 
 		else
-			throw 'error: no ops specified'
+			throw error.Error.NoOpsSpecified.Format('no ops specified')
 		endif 
 		paths = op_path[ind : ]
 	endif
 
 	for _op in op
 		if index(open_file_ops, _op) < 0
-			throw $"error: invalid operation {op}"
+			throw error.Error.InvalidOp.Format($"invalid operation {op}")
 		endif
 	endfor
 
@@ -629,7 +636,9 @@ def OnLine(conn: Connection, line: string)
 				: getcwd() .. PathSep() .. paths[1]
 			RsyncFile(conn, true, paths[0], save_path)
 		else
-			throw $"error: get expects 1 or 2 arguments, got {len(paths)}"
+			throw error.Error.InvalidNumberOfArguments.Format(
+				$"'get' expects 1 or 2 arguments, got {len(paths)}"
+			)
 		endif
 	elseif len(op) == 1 && op[0] == "put"
 		var local_file = expand(paths[0])
@@ -691,7 +700,9 @@ def OnLine(conn: Connection, line: string)
 		elseif len(paths) == 2
 			RsyncFile(conn, false, local_file, paths[1])
 		else
-			throw $"error: put expects 1 or 2 arguments, got {len(paths)}"
+			throw error.Error.InvalidNumberOfArguments.Format(
+				$"'put' expects 1 or 2 arguments, got {len(paths)}"
+			)
 		endif
 	elseif len(op) == 1 && op[0] == "mget"
 		const remote_files = filter(copy(paths), (_, v) => !empty(v))
@@ -700,7 +711,9 @@ def OnLine(conn: Connection, line: string)
 		endif
 	elseif len(op) == 1 && op[0] == "mput"
 		if empty(paths)
-			throw "error: mput expects at least 1 argument"
+			throw error.Error.InvalidNumberOfArguments.Format(
+				$"'mput' expects at least 1 argument"
+			)
 		endif
 
 		const remote_path = len(paths) > 1 ? paths[1] : ""
@@ -718,7 +731,7 @@ def OnLine(conn: Connection, line: string)
 			OpenFile(conn, op, path)
 		endfor
 	else
-		throw $"error: invalid operation {op}"
+		throw error.Error.InvalidOp.Format($"invalid operation {op}")
 	endif
 enddef
 
@@ -762,7 +775,9 @@ def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
 		try
 			execute op .. ' ' .. fnameescape(target)
 		catch /E492/
-			throw $'conduit: could not run "execute {op} {fnameescape(target)}"'
+			throw error.Error.InvalidOp.Format(
+				$'could not run "execute {op} {fnameescape(target)}"'
+			)
 		endtry
 
 		if reset_netrw_scp_cmd
@@ -895,7 +910,9 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 			endfor
 			scp_cmd->add(target_path)
 		else
-			throw "error rsync or scp not available"
+			throw error.Error.RsyncScpUnavailable.Format(
+				"rsync or scp not available"
+			)
 		endif
 	else
 		if executable('rsync')
@@ -924,7 +941,9 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 			scp_cmd->extend(paths)
 			scp_cmd->add($'{host}:{target_path}')
 		else
-			throw "error rsync or scp not available"
+			throw error.Error.RsyncScpUnavailable.Format(
+				"rsync or scp not available"
+			)
 		endif
 	endif
 
@@ -1523,7 +1542,9 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 						win_gotoid(currwin)
 						conn.AddTermByBufNr(term_bufnr)
 					else
-						throw $'conduit: could not open terminal in window {win_to_use}'
+						throw error.Error.CouldNotOpenTerm.Format(
+							$'could not open terminal in window {win_to_use}'
+						)
 					endif
 
 					# User a timer for the success message since the ssh
@@ -1732,7 +1753,9 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 			ConduitStopCmd(args[1], args[2 :])
 		endif
 	else
-		echoerr $"error: unknown command {cmd}"
+		echoerr error.Error.InvalidConduitCommand.Format(
+			"invalid conduit command"
+		)
 	endif
 enddef
 
@@ -1967,7 +1990,9 @@ enddef
 
 export def MaybeCleanup(conn: Connection, all: bool = false, force: bool = false, Callback: func(bool): void = null_function): bool
 	if conn == null && !all
-		throw 'error: must specify connection when `all` is false'
+		throw error.Error.Misc.Format(
+			'must specify connection when `all` is false'
+		)
 	elseif conn == null
 		if Callback != null | Callback(true) | endif
 		return true
