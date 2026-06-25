@@ -589,20 +589,15 @@ def ExpandLocalGlob(pattern: string): list<string>
 	return glob(pattern, false, true)
 enddef
 
-def OnLine(conn: Connection, line: string)
-	var op_path = trim(line)->split(g:conduit_sep)
-
-	var op: list<string> = []
+# Takes a list of ops, paths, and/or '--' and splits it, returning a list of
+# ops and a list of paths separately.
+def ParseOpsAndPaths(op_path: list<string>): tuple<list<string>, list<string>>
+	var ops: list<string> = []
 	var paths: list<string>
-	if len(op_path) == 1
-		throw error.Error.InvalidOpPathFormat.Format(
-			$"expected 'op:path' format, got {line}"
-		)
-	endif
 
 	const opind = index(op_path, '--') 
 	if opind > 0
-		op = op_path[ : opind - 1]
+		ops = op_path[ : opind - 1]
 		paths = op_path[opind + 1 : ]
 	else
 		# Loop through arguments, consuming ops until the first non-op argument
@@ -612,22 +607,36 @@ def OnLine(conn: Connection, line: string)
 		endfor
 
 		if ind > 0 
-			op = op_path[ : ind - 1] 
+			ops = op_path[ : ind - 1] 
 		else
 			throw error.Error.NoOpsSpecified.Format('no ops specified')
 		endif 
 		paths = op_path[ind : ]
 	endif
 
-	for _op in op
-		if index(open_file_ops, _op) < 0
+	# Validate that all provided ops are supported
+	for op in ops
+		if index(all_ops, op) < 0
 			throw error.Error.InvalidOp.Format($"invalid operation {op}")
 		endif
 	endfor
 
+	return (ops, paths)
+enddef
+
+def OnLine(conn: Connection, line: string)
+	var op_path = trim(line)->split(g:conduit_sep)
+	if len(op_path) == 1
+		const s = g:conduit_sep
+		throw error.Error.InvalidOpPathFormat.Format(
+			$"expected 'op1{s}op2{s}...{s}path1{s}path2{s}...' format, got {line}"
+		)
+	endif
+
+	var [ops, paths] = ParseOpsAndPaths(op_path)
 	if empty(paths) | return | endif
 
-	if len(op) == 1 && op[0] == "get"
+	if len(ops) == 1 && ops[0] == "get"
 		if len(paths) == 1 || empty(paths[1])
 			RsyncFile(conn, true, paths[0], getcwd())
 		elseif len(paths) == 2
@@ -640,7 +649,7 @@ def OnLine(conn: Connection, line: string)
 				$"'get' expects 1 or 2 arguments, got {len(paths)}"
 			)
 		endif
-	elseif len(op) == 1 && op[0] == "put"
+	elseif len(ops) == 1 && ops[0] == "put"
 		var local_file = expand(paths[0])
 
 		const PutWarn = () => Warn($"Could not find file {local_file}")
@@ -704,12 +713,12 @@ def OnLine(conn: Connection, line: string)
 				$"'put' expects 1 or 2 arguments, got {len(paths)}"
 			)
 		endif
-	elseif len(op) == 1 && op[0] == "mget"
-		const remote_files = filter(copy(paths), (_, v) => !empty(v))
+	elseif len(ops) == 1 && ops[0] == "mget"
+		const remote_files = filter(deepcopy(paths), (_, v) => !empty(v))
 		if !empty(remote_files)
 			RsyncFiles(conn, true, remote_files, getcwd())
 		endif
-	elseif len(op) == 1 && op[0] == "mput"
+	elseif len(ops) == 1 && ops[0] == "mput"
 		if empty(paths)
 			throw error.Error.InvalidNumberOfArguments.Format(
 				$"'mput' expects at least 1 argument"
@@ -724,14 +733,14 @@ def OnLine(conn: Connection, line: string)
 		endif
 
 		RsyncFiles(conn, false, local_files, remote_path)
-	elseif !empty(op)
+	elseif !empty(ops)
 		var i = 0
 		for path in paths
-			# timer_start(0, (_) => OpenFile(conn, op, path))
-			OpenFile(conn, op, path)
+			# timer_start(0, (_) => OpenFile(conn, ops, path))
+			OpenFile(conn, ops, path)
 		endfor
 	else
-		throw error.Error.InvalidOp.Format($"invalid operation {op}")
+		throw error.Error.InvalidOp.Format($"invalid operation {ops}")
 	endif
 enddef
 
