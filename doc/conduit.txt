@@ -189,10 +189,10 @@ Examples:
 - `lvim -- file.txt` — Explicitly marks file.txt as a filename (useful if a filename matches an operation name)
 
 File Transfer Operations:
-- put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}.
-- get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}.
+- put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}. If `{remote_file}` is omitted, Conduit uses the remote shell's current directory.
+- get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}. If `{local_file}` is omitted, Conduit uses the local current directory.
 - mget {pat}: Download remote files matching {pat}. If `{pat}` is not quoted, it will expand on the server and each individual file will be downloaded.
-- mput {pat}: Upload local files matching {pat}. `{pat}` must be quoted, otherwise it will be expanded before by the shell before Conduit can access it.
+- mput {pat}: Upload local files matching {pat}. If no destination is provided, Conduit uses the remote shell's current directory. `{pat}` must be quoted, otherwise it will be expanded before by the shell before Conduit can access it.
 
 If no operation is provided, |g:conduit_default_split| is used.
 

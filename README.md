@@ -142,8 +142,13 @@ If you run `lvim put my-local-file.txt` but that file isn't in your local direct
 2. If one match is found, it uploads it immediately.
 3. If multiple matches are found, it opens a menu in Vim for you to choose which one(s) to send.
 
+`lvim put` uploads to the remote shell's current directory when you omit the
+second argument.
+
 `lvim mput` skips fuzzy matching and uploads every local file that matches the
 glob you pass in. Quote the glob so the remote shell does not expand it first.
+If you do not pass a second argument, Conduit uses the remote shell's current
+directory.
 
 ## ⚙️ Advanced Configuration
 
