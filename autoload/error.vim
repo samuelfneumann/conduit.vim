@@ -14,10 +14,10 @@ export enum Error
 	InvalidTermOption("C011"),
 	TermOptionRequiresValue("C012"),
 	InvalidConduitOption("C013"),
-	InvalidConduitCommand("C014")
+	InvalidConduitCommand("C014"),
 	CouldNotOpenTerm("C015"),
 	InvalidOpPathFormat("C016"),
-	Misc("C017"),
+	Misc("C017")
 
 	const code: string
 
