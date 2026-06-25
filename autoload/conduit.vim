@@ -44,6 +44,7 @@ const open_file_ops = [
 	"vsplit", "vsp", "vert", "vertical",
 	"tabe", "tabedit", "tabnew", "tab",
 	"arga", "argadd",
+	"arge", "argedit",
 ]
 
 # All supported `lvim` ops
