@@ -24,15 +24,51 @@ import autoload 'conduit.vim'
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
+def EchoDeprecated(msg: string)
+	echohl WarningMsg
+	echo msg
+	echohl clear
+enddef
+
 command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitCompl  Conduit conduit.ConduitCmd(false, !empty(expand("<bang>")), <q-mods>, <f-args>)
-command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitHostAndOptionCompl ConduitOpen conduit.ConduitOpenCmd(false, !empty(expand("<bang>")), <q-mods>, <q-args>)
-command! -bar -nargs=+ -complete=customlist,conduit.ConduitHostCompl ConduitDeploy conduit.ConduitOpenCmd(true, false, '', <q-args>)
-command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitExit conduit.ConduitExitCmd(<q-args>)
-command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitDisconnect conduit.ConduitDisconnectCmd(<q-args>)
-command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitCopySource conduit.ConduitCopySourceCmd(<q-args>)
-command! -bar ConduitNotifications conduit.ShowHistory()
-command! -bar -nargs=+ ConduitStopGet conduit.ConduitStopCmd("get", <f-args>)
-command! -bar -nargs=+ ConduitStopPut conduit.ConduitStopCmd("put", <f-args>)
+
+command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitHostAndOptionCompl ConduitOpen {
+	EchoDeprecated(":ConduitOpen is deprecated and will be removed in a future version of Conduit. Use `:Conduit open`") 
+	conduit.ConduitOpenCmd(false, !empty(expand("<bang>")), <q-mods>, <q-args>)
+}
+command! -bar -nargs=+ -complete=customlist,conduit.ConduitHostCompl ConduitDeploy {
+	EchoDeprecated(":ConduitDeploy is deprecated and will be removed in a future version of Conduit. Use `:Conduit deploy`") 
+	conduit.ConduitOpenCmd(true, false, '', <q-args>)
+}
+
+command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitExit {
+	EchoDeprecated(":ConduitExit is deprecated and will be removed in a future version of Conduit. Use `:Conduit exit`") 
+	conduit.ConduitExitCmd(<q-args>)
+}
+command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitDisconnect {
+	EchoDeprecated(":ConduitDisconnect is deprecated and will be removed in a future version of Conduit. Use `:Conduit disconnect`") 
+	conduit.ConduitDisconnectCmd(<q-args>)
+}
+
+command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitCopySource {
+	EchoDeprecated(":ConduitSource is deprecated and will be removed in a future version of Conduit. Use `:Conduit source`") 
+	conduit.ConduitCopySourceCmd(<q-args>)
+}
+
+command! -bar ConduitNotifications {
+	EchoDeprecated(":ConduitNotifications is deprecated and will be removed in a future version of Conduit. Use `:Conduit notifications`") 
+	conduit.ShowHistory()
+}
+
+command! -bar -nargs=+ ConduitStopGet {
+	EchoDeprecated(":ConduitStopGet is deprecated and will be removed in a future version of Conduit. Use `:Conduit stop get`") 
+	conduit.ConduitStopCmd("get", <f-args>)
+}
+
+command! -bar -nargs=+ ConduitStopPut {
+	EchoDeprecated(":ConduitStopPut is deprecated and will be removed in a future version of Conduit. Use `:Conduit stop put`") 
+	conduit.ConduitStopCmd("put", <f-args>)
+}
 
 # ── Lifecycle & Integration ──────────────────────────────────────────────────
 augroup ConduitOpen
