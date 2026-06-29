@@ -214,6 +214,11 @@ export class Connection
 						appendbufline(bufnr, "$", "✓ Thanks for using conduit.vim!")
 						setbufvar(bufnr, "&modifiable", false)
 						setbufvar(bufnr, "&modified", false)
+
+						const bufhidden = get(g:, 'conduit_bufhidden', 'wipe')
+						if !empty(bufhidden)
+							setbufvar(bufnr, '&bufhidden', bufhidden)
+						endif 
 					}
 				)
 
@@ -1575,6 +1580,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 							ssh_cmd,
 							term_options->extend({ term_name: term_name, curwin: !hidden })
 						)
+
 						win_gotoid(currwin)
 						conn.AddTermByBufNr(term_bufnr)
 					else
