@@ -1,6 +1,7 @@
 vim9script
 
 import autoload 'notifier.vim'
+import autoload 'error.vim'
 
 # ── Utility Helpers ──────────────────────────────────────────────────────────
 
@@ -23,6 +24,50 @@ def GetFailureTimeout(): number
 	endif
 	return timeout
 enddef
+
+# ── Constants ────────────────────────────────────────────────────────────────
+
+const modifiers = [
+	"tab",
+	"vert", "vertical",
+	"hor", "horizontal",
+	"lefta", "leftabove",
+	"abo", "aboveleft",
+	"rightb", "rightbelow",
+	"bel", "belowright",
+	"to", "topleft",
+	"bo", "botright",
+]
+
+const open_file_ops = [
+	"split", "sp",
+	"vsplit", "vsp", "vert", "vertical",
+	"tabe", "tabedit", "tabnew", "tab",
+	"arga", "argadd",
+	"arge", "argedit",
+]
+
+# All supported `lvim` ops
+const all_ops = ["put", "get", "mget", "mput"]->extend(open_file_ops)->extend(modifiers)
+
+# ssh options that take arguments
+const ssh_opts_with_value = [
+	'B', 'b', 'c', 'D', 'E', 'F', 'I', 'i', 'J', 'l', 'L', 'm', 'O', 'o',
+	'p', 'Q', 'R', 'S', 'W', 'w',
+]
+
+# Vim-terminal options
+const term_opts = [
+	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
+]
+
+# Vim-terminal options that take arguments
+const term_opts_with_value = [
+	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
+]
+
+const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
+
 
 # ── Classes & Core Types ─────────────────────────────────────────────────────
 export class Connection
@@ -169,6 +214,11 @@ export class Connection
 						appendbufline(bufnr, "$", "✓ Thanks for using conduit.vim!")
 						setbufvar(bufnr, "&modifiable", false)
 						setbufvar(bufnr, "&modified", false)
+
+						const bufhidden = get(g:, 'conduit_bufhidden', 'wipe')
+						if !empty(bufhidden)
+							setbufvar(bufnr, '&bufhidden', bufhidden)
+						endif 
 					}
 				)
 
@@ -336,33 +386,6 @@ def GetSshCommandString(conn: Connection, head_args: list<string>, tail_args: li
 	return ShellJoin(GetSshCommandArgs(conn, head_args, tail_args))
 enddef
 
-const ssh_opts_with_value = [
-	'B', 'b', 'c', 'D', 'E', 'F', 'I', 'i', 'J', 'l', 'L', 'm', 'O', 'o',
-	'p', 'Q', 'R', 'S', 'W', 'w',
-]
-
-const term_opts = [
-	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
-]
-
-const term_opts_with_value = [
-	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
-]
-
-const modifiers = [
-	"tab",
-	"vert", "vertical",
-	"hor", "horizontal",
-	"lefta", "leftabove",
-	"abo", "aboveleft",
-	"rightb", "rightbelow",
-	"bel", "belowright",
-	"to", "topleft",
-	"bo", "botright",
-]
-
-const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
-
 def ParseTermOptions(opts: dict<any>): dict<any>
 	var new_opts = {}
 	for key in keys(opts)
@@ -387,7 +410,7 @@ enddef
 def ParseConduitOpenArgs(args: string): dict<any>
 	var tokens = split(args)
 	if empty(tokens)
-		throw 'missing host'
+		error.Error.MissingHost.Format('missing host')
 	endif
 
 	var ssh_options: list<string> = []
@@ -396,7 +419,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	while idx < len(tokens) && tokens[idx] =~# '^++'
 		var token = tokens[idx][2 : ]
 		if empty(token)
-			throw 'invalid conduit option'
+			throw error.Error.InvalidConduitOption.Format("invalid conduit option")
 		endif
 
 		if token =~# '^--'
@@ -410,7 +433,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			const val = token[eq_idx + 1 : ]
 
 			if empty(flag) || empty(val)
-				throw 'invalid ssh option'
+				throw error.Error.InvalidSshOption.Format('invalid ssh option')
 			endif
 
 			if index(ssh_opts_with_value, token) >= 0
@@ -424,14 +447,18 @@ def ParseConduitOpenArgs(args: string): dict<any>
 
 		if index(ssh_opts_with_value, token) >= 0
 			if idx + 1 >= len(tokens)
-				throw $'ssh option ++{token} requires a value'
+				throw error.Error.SshOptionRequiresValue.Format(
+					$'ssh option ++{token} requires a value'
+				)
 			endif
 			ssh_options->extend([$'-{token}', tokens[idx + 1]])
 			idx += 2
 			continue
 		elseif index(term_opts_with_value, token) >= 0
 			if idx + 1 >= len(tokens)
-				throw $'term option ++{token} requires a value'
+				throw error.Error.TermOptionRequiresValue.Format(
+					$'term option ++{token} requires a value'
+				)
 			endif
 			term_options[token] = tokens[idx + 1]
 			idx += 2
@@ -447,7 +474,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	endwhile
 
 	if idx >= len(tokens)
-		throw 'missing host'
+		throw error.Error.MissingHost.Format('missing host')
 	endif
 
 	var host = tokens[idx]
@@ -459,7 +486,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	endif
 
 	if port == 0
-		throw 'invalid port'
+		throw error.Error.InvalidPort.Format('invalid port')
 	endif
 
 	return {
@@ -556,13 +583,6 @@ def EnsureListener(conn: Connection): bool
 	return true
 enddef
 
-const open_file_ops = [
-	"split", "sp",
-	"vsplit", "vsp", "vert split", "vertical split",
-	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
-	"arga", "argadd",
-]
-
 def PathSep(): string
    return has('win32') ? '\' : '/'
 enddef
@@ -575,27 +595,54 @@ def ExpandLocalGlob(pattern: string): list<string>
 	return glob(pattern, false, true)
 enddef
 
-def OnLine(conn: Connection, line: string)
-	var op_path = trim(line)->split(g:conduit_sep)
-
-	var op: string
+# Takes a list of ops, paths, and/or '--' and splits it, returning a list of
+# ops and a list of paths separately.
+def ParseOpsAndPaths(op_path: list<string>): tuple<list<string>, list<string>>
+	var ops: list<string> = []
 	var paths: list<string>
-	if len(op_path) == 1
-		throw $"error: expected 'op:path' format, got {line}"
+
+	const opind = index(op_path, '--') 
+	if opind > 0
+		ops = op_path[ : opind - 1]
+		paths = op_path[opind + 1 : ]
+	else
+		# Loop through arguments, consuming ops until the first non-op argument
+		var ind = 0
+		for _op in op_path
+			if index(all_ops, _op) >= 0 | ind += 1 | endif
+		endfor
+
+		if ind > 0 
+			ops = op_path[ : ind - 1] 
+		else
+			throw error.Error.NoOpsSpecified.Format('no ops specified')
+		endif 
+		paths = op_path[ind : ]
 	endif
 
-	op = op_path[0]
-	paths = op_path[1 : ]
+	# Validate that all provided ops are supported
+	for op in ops
+		if index(all_ops, op) < 0
+			throw error.Error.InvalidOp.Format($"invalid operation {op}")
+		endif
+	endfor
 
+	return (ops, paths)
+enddef
+
+def OnLine(conn: Connection, line: string)
+	var op_path = trim(line)->split(g:conduit_sep)
+	if len(op_path) == 1
+		const s = g:conduit_sep
+		throw error.Error.InvalidOpPathFormat.Format(
+			$"expected 'op1{s}op2{s}...{s}path1{s}path2{s}...' format, got {line}"
+		)
+	endif
+
+	var [ops, paths] = ParseOpsAndPaths(op_path)
 	if empty(paths) | return | endif
 
-	if index(open_file_ops, op) > -1
-		var i = 0
-		for path in paths
-			# timer_start(0, (_) => OpenFile(conn, op, path))
-			OpenFile(conn, op, path)
-		endfor
-	elseif op == "get"
+	if len(ops) == 1 && ops[0] == "get"
 		if len(paths) == 1 || empty(paths[1])
 			RsyncFile(conn, true, paths[0], getcwd())
 		elseif len(paths) == 2
@@ -604,9 +651,11 @@ def OnLine(conn: Connection, line: string)
 				: getcwd() .. PathSep() .. paths[1]
 			RsyncFile(conn, true, paths[0], save_path)
 		else
-			throw $"error: get expects 1 or 2 arguments, got {len(paths)}"
+			throw error.Error.InvalidNumberOfArguments.Format(
+				$"'get' expects 1 or 2 arguments, got {len(paths)}"
+			)
 		endif
-	elseif op == "put"
+	elseif len(ops) == 1 && ops[0] == "put"
 		var local_file = expand(paths[0])
 
 		const PutWarn = () => Warn($"Could not find file {local_file}")
@@ -666,16 +715,20 @@ def OnLine(conn: Connection, line: string)
 		elseif len(paths) == 2
 			RsyncFile(conn, false, local_file, paths[1])
 		else
-			throw $"error: put expects 1 or 2 arguments, got {len(paths)}"
+			throw error.Error.InvalidNumberOfArguments.Format(
+				$"'put' expects 1 or 2 arguments, got {len(paths)}"
+			)
 		endif
-	elseif op == "mget"
-		const remote_files = filter(copy(paths), (_, v) => !empty(v))
+	elseif len(ops) == 1 && ops[0] == "mget"
+		const remote_files = filter(deepcopy(paths), (_, v) => !empty(v))
 		if !empty(remote_files)
 			RsyncFiles(conn, true, remote_files, getcwd())
 		endif
-	elseif op == "mput"
+	elseif len(ops) == 1 && ops[0] == "mput"
 		if empty(paths)
-			throw "error: mput expects at least 1 argument"
+			throw error.Error.InvalidNumberOfArguments.Format(
+				$"'mput' expects at least 1 argument"
+			)
 		endif
 
 		const remote_path = len(paths) > 1 ? paths[1] : ""
@@ -686,14 +739,21 @@ def OnLine(conn: Connection, line: string)
 		endif
 
 		RsyncFiles(conn, false, local_files, remote_path)
+	elseif !empty(ops)
+		var i = 0
+		for path in paths
+			# timer_start(0, (_) => OpenFile(conn, ops, path))
+			OpenFile(conn, ops, path)
+		endfor
 	else
-		throw $"error: invalid operation {op}"
+		throw error.Error.InvalidOp.Format($"invalid operation {ops}")
 	endif
 enddef
 
 # ── Remote File Operations ───────────────────────────────────────────────────
 
-def OpenFile(conn: Connection, op: string, remote_path: string)
+def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
+	const op = oper->join(' ')
 	var host = conn.host
 
     var target: string
@@ -727,7 +787,13 @@ def OpenFile(conn: Connection, op: string, remote_path: string)
 		endif
 
 		g:netrw_scp_cmd = scp_cmd
-		execute op .. ' ' .. fnameescape(target)
+		try
+			execute op .. ' ' .. fnameescape(target)
+		catch /E492/
+			throw error.Error.InvalidOp.Format(
+				$'could not run "execute {op} {fnameescape(target)}"'
+			)
+		endtry
 
 		if reset_netrw_scp_cmd
 			# Reset netrw scp command if needed
@@ -859,7 +925,9 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 			endfor
 			scp_cmd->add(target_path)
 		else
-			throw "error rsync or scp not available"
+			throw error.Error.RsyncScpUnavailable.Format(
+				"rsync or scp not available"
+			)
 		endif
 	else
 		if executable('rsync')
@@ -888,7 +956,9 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 			scp_cmd->extend(paths)
 			scp_cmd->add($'{host}:{target_path}')
 		else
-			throw "error rsync or scp not available"
+			throw error.Error.RsyncScpUnavailable.Format(
+				"rsync or scp not available"
+			)
 		endif
 	endif
 
@@ -911,13 +981,6 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 	)
 enddef
 
-const all_ops = [
-	"put", "get", "mget", "mput", "split", "sp",
-	"vsplit", "vsp", "vert split", "vertical split",
-	"tabe", "tabedit", "tabnew", "tab split", "tab sp", "tab vsplit", "tab vert split", "tab vertical split", "tab vsp",
-	"arga", "argadd",
-]
-
 def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void): job
 	const quoted_joined_file_ops = mapnew(all_ops, (_, v) => $'"{v}"')->join('|')
 
@@ -939,40 +1002,97 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         '    return 1',
         '  fi',
         '}',
-        'lvim() {',
-        $'  local op="{g:conduit_default_split}"',
+        '_is_conduit_op() {',
         '  case "$1" in',
-		$'    {quoted_joined_file_ops}) op="$1"; shift ;;',
+		$'    {quoted_joined_file_ops}) return 0 ;;',
+        '    *) return 1 ;;',
         '  esac',
-		'  if [ "$#" -eq 0 ]; then',
+        '}',
+        'lvim() {',
+        '  # Find -- if present',
+        '  local dash_dash_idx=-1',
+        '  for ((i=1; i<=$#; i++)); do',
+        '    if [ ' .. '"${!i}"' .. ' = "--" ]; then',
+        '      dash_dash_idx=$i',
+        '      break',
+        '    fi',
+        '  done',
+        '',
+        '  # Consume operations from the start',
+        '  local -a consumed_ops=()',
+        '  if [ $dash_dash_idx -gt 0 ]; then',
+        '    # Everything before -- are ops',
+        '    for ((i=1; i<dash_dash_idx; i++)); do',
+        '      consumed_ops+=(' .. '"${!i}"' .. ')',
+        '    done',
+        '    # Remove everything up to and including --',
+        '    for ((i=0; i<dash_dash_idx; i++)); do',
+        '      shift',
+        '    done',
+        '  else',
+        '    # Consume ops until we hit the first non-op',
+        '    while [ $# -gt 0 ]; do',
+        '      if _is_conduit_op "$1"; then',
+        '        consumed_ops+=("$1")',
+        '        shift',
+        '      else',
+        '        break',
+        '      fi',
+        '    done',
+        '  fi',
+        '',
+        '  if [ "$#" -eq 0 ]; then',
         $"    echo 'Usage: lvim [{quoted_joined_file_ops}] <file> [files...]' >&2",
         '    return 1',
         '  fi',
-        '  local msg="$op"',
-		'  if [ "$op" == "put" ]; then',
-		'    if (( $# >= 2 )); then',
-		$'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(realpath "$2")"',
-		'    else',
-        $'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
-		'    fi',
-		'  elif [ "$op" == "get" ]; then',
-		'    if (( $# >= 2 )); then',
-		$'      msg="$msg{g:conduit_sep}$(realpath $1){g:conduit_sep}$2"',
-		'    else',
-        $'      msg="$msg{g:conduit_sep}$(realpath $1){g:conduit_sep}"',
-		'    fi',
-		'  elif [ "$op" == "mget" ]; then',
-		'    for f in "$@"; do',
-		$'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
-		'    done',
-		'  elif [ "$op" == "mput" ]; then',
-		$'    msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
-		'  else',
-        '    for f in "$@"; do',
-        $'      msg="$msg{g:conduit_sep}$(realpath "$f")"',
+        '',
+        '  # Build message: ops first, then op-specific path encoding',
+        '  local msg=""',
+        '  if [ ' .. '${#consumed_ops[@]}' .. ' -gt 0 ]; then',
+        '    msg=' .. '"${consumed_ops[0]}"',
+        '    for ((i=1; i<' .. '${#consumed_ops[@]}' .. '; i++)); do',
+        '      msg="$msg' .. $'{g:conduit_sep}' .. '${consumed_ops[$i]}"',
         '    done',
-		'  fi',
-        # '  echo "lvim $msg"', # For testing
+        '  else',
+        $'    msg="{g:conduit_default_split}"',
+        '  fi',
+        '',
+        '  # Add -- separator if it was present in original args',
+        '  if [ $dash_dash_idx -gt 0 ]; then',
+        $'    msg="$msg{g:conduit_sep}--"',
+        '  fi',
+        '',
+        '  case " ${consumed_ops[*]} " in',
+        '    *" put "*)',
+        '      if [ "$#" -ge 2 ]; then',
+        $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(realpath "$2")"',
+        '      else',
+        $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
+        '      fi',
+        '      ;;',
+        '    *" get "*)',
+        '      if [ "$#" -ge 2 ]; then',
+        $'        msg="$msg{g:conduit_sep}$(realpath "$1"){g:conduit_sep}$2"',
+        '      else',
+        $'        msg="$msg{g:conduit_sep}$(realpath "$1"){g:conduit_sep}"',
+        '      fi',
+        '      ;;',
+        '    *" mget "*)',
+        '      for arg in "$@"; do',
+        $'        msg="$msg{g:conduit_sep}$(realpath "$arg")"',
+        '      done',
+        '      ;;',
+        '    *" mput "*)',
+        $'      msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
+        '      ;;',
+        '    *)',
+        '      for arg in "$@"; do',
+        $'        msg="$msg{g:conduit_sep}$(realpath "$arg")"',
+        '      done',
+        '      ;;',
+        '  esac',
+        '',
+        '',
         '  _lvim_send "$msg"',
         '}',
         "source ${rcfiles[$(basename $SHELL)]}",
@@ -1460,10 +1580,13 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 							ssh_cmd,
 							term_options->extend({ term_name: term_name, curwin: !hidden })
 						)
+
 						win_gotoid(currwin)
 						conn.AddTermByBufNr(term_bufnr)
 					else
-						throw $'conduit: could not open terminal in window {win_to_use}'
+						throw error.Error.CouldNotOpenTerm.Format(
+							$'could not open terminal in window {win_to_use}'
+						)
 					endif
 
 					# User a timer for the success message since the ssh
@@ -1672,7 +1795,9 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 			ConduitStopCmd(args[1], args[2 :])
 		endif
 	else
-		echoerr $"error: unknown command {cmd}"
+		echoerr error.Error.InvalidConduitCommand.Format(
+			"invalid conduit command"
+		)
 	endif
 enddef
 
@@ -1816,7 +1941,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
     const current_cmd = GetCurrentCmd(CmdLine, CursorPos)
     var parts = split(current_cmd)
 
-	# Extract the Conduit command, 
+	# Extract the Conduit command
 	var cmd: string = ""
 	if len(parts) > 1
 		if index(modifiers, parts[0]) >= 0
@@ -1907,7 +2032,9 @@ enddef
 
 export def MaybeCleanup(conn: Connection, all: bool = false, force: bool = false, Callback: func(bool): void = null_function): bool
 	if conn == null && !all
-		throw 'error: must specify connection when `all` is false'
+		throw error.Error.Misc.Format(
+			'must specify connection when `all` is false'
+		)
 	elseif conn == null
 		if Callback != null | Callback(true) | endif
 		return true
