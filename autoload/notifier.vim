@@ -83,6 +83,19 @@ def AddHighlight(bufnr: number, linenr: number, start_byte: number, end_byte: nu
 	})
 enddef
 
+def AddHighlightChars(bufnr: number, linenr: number, text: string, start_char: number, end_char: number, prop_type: string)
+	if start_char < 0 || end_char <= start_char || prop_type == ""
+		return
+	endif
+
+	const start_byte = byteidx(text, start_char)
+	const end_byte = byteidx(text, end_char)
+	if start_byte == -1 || end_byte == -1
+		return
+	endif
+	AddHighlight(bufnr, linenr, start_byte, end_byte, prop_type)
+enddef
+
 def GetMaxWidth(): number
 	return max([1, !empty(g:notifier_maxwidth) ? float2nr(g:notifier_maxwidth) : &columns])
 enddef
@@ -157,6 +170,59 @@ def StopCarousel(winid: number)
 	if has_key(carousel_idxs, id_str) | remove(carousel_idxs, id_str) | endif
 enddef
 
+def AddCarouselOpHighlight(winid: number, bufnr: number, linenr: number, text: string): bool
+	const id_str = string(winid)
+	if !has_key(carousel_msgs, id_str)
+		return false
+	endif
+
+	const msg = carousel_msgs[id_str]
+	const prefix = get(carousel_prefixes, id_str, '')
+	const body_width = GetMaxWidth() - strcharlen(prefix)
+	if body_width <= 0
+		return false
+	endif
+
+	const msg_len = strcharlen(msg)
+	const gap_len = 3
+	const cycle_len = msg_len + gap_len
+	const frame_start = carousel_idxs[id_str] % cycle_len
+	const frame_end = frame_start + body_width
+	var found = false
+
+	var search_start = 0
+	while search_start >= 0
+		const op_match = matchstrpos(msg, '\[\(get\|put\|mget\|mput\)\]', search_start)
+		if op_match[1] == -1
+			break
+		endif
+
+		const op_start = strcharlen(strpart(msg, 0, op_match[1]))
+		const op_end = strcharlen(strpart(msg, 0, op_match[2]))
+		for offset in [0, cycle_len]
+			const shifted_start = op_start + offset
+			const shifted_end = op_end + offset
+			const visible_start = max([shifted_start, frame_start])
+			const visible_end = min([shifted_end, frame_end])
+			if visible_start < visible_end
+				AddHighlightChars(
+					bufnr,
+					linenr,
+					text,
+					strcharlen(prefix) + visible_start - frame_start,
+					strcharlen(prefix) + visible_end - frame_start,
+					"notify_op"
+				)
+				found = true
+			endif
+		endfor
+
+		search_start = op_match[2]
+	endwhile
+
+	return found
+enddef
+
 def SetDisplayText(
 		winid: number,
 		in_msg: string,
@@ -210,8 +276,10 @@ def ApplyHighlight(winid: number, linenr: number=1)
     # Clear any existing highlights on the first line
     prop_clear(linenr, 1, {bufnr: bufnr})
 
-    var op_match = matchstrpos(text, '\[\(get\|put\|mget\|mput\)\]')
-	AddHighlight(bufnr, linenr, op_match[1], op_match[2], "notify_op")
+    if !AddCarouselOpHighlight(winid, bufnr, linenr, text)
+		var op_match = matchstrpos(text, '\[\(get\|put\|mget\|mput\)\]')
+		AddHighlight(bufnr, linenr, op_match[1], op_match[2], "notify_op")
+	endif
 
     # Find the FIRST occurrence of any of the target symbols.
     # In ASCII mode, we are more restrictive to avoid highlighting characters in words.
