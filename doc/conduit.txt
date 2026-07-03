@@ -12,10 +12,10 @@ NOTE: This plugin requires Vim 9.1 or later with +job and +popupwin.
 ==============================================================================
 1. Usage                                                    *conduit-usage*
 
-To start using conduit, use the |:ConduitOpen| command to connect to a remote
+To start using conduit, use the |:Conduit open| command to connect to a remote
 host:
 >
-    :ConduitOpen user@example.com
+    :Conduit open user@example.com
 <
 This will open a terminal window running an SSH session. Within this session,
 a special `lvim` command is available.
@@ -30,45 +30,82 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 `_vim` to run the actual vim binary on the remote host.
 
 ==============================================================================
-2. Commands                                                 *conduit-commands*
+2. `:Conduit` Command                                      *conduit-commands*
 
-:Conduit {args}                                             *:Conduit*
+:Conduit {subcommand} ...                                   *:Conduit*
         General command interface for Conduit operations.
 
+        Subcommands:
+
+:Conduit open [++SSHOPT ...] [++TERMOPT ...] [--] [user@]host[:port]
+                                                            *:Conduit-open*
+        Open a new conduit session to {host}. `++` options before the host
+        are parsed as SSH flags or Vim terminal options. SSH options are
+        forwarded to `ssh`. Terminal options include `++curwin`,
+        `++vertical`, `++hidden`, `++norestore`, `++open`, `++close`,
+        `++noclose`, `++rows=N`, `++cols=N`, `++eof=...`, `++api=...`,
+        `++kill=...`, and `++opencmd=...`. Use `++--` to stop option parsing
+        before the host if needed.
+
+:Conduit deploy [++SSHOPT ...] [++TERMOPT ...] [--] [user@]host[:port]
+                                                            *:Conduit-deploy*
+        Deploy the conduit environment to {host} without opening a terminal.
+        This is useful when you already have an SSH session elsewhere and
+        only want to inject the remote `lvim` environment. On success, Conduit
+        echoes and copies the remote `source` command.
+
+:Conduit exit {connection-key}                              *:Conduit-exit*
+        Cleanly close the conduit session for {connection-key}, removing
+        remote temporary files and closing the reverse tunnel.
+
+:Conduit disconnect {connection-key}                        *:Conduit-disconnect*
+        Forcefully disconnect the named connection.
+
+:Conduit source {connection-key}                            *:Conduit-source*
+        Echo and copy the `source` command for the remote conduit RC file to
+        the system clipboard.
+
+:Conduit notifications {history|dismiss}                    *:Conduit-notifications*
+        Show a history of conduit notifications or dismiss all active
+        notifications.
+
+:Conduit stop {get|put|*} {connection-key} {pattern}        *:Conduit-stop*
+        Stop ongoing transfer jobs. `pattern` is fuzzily matched against the
+        transfer's local and remote file names. Use `*` to stop all matching
+        jobs for that connection and transfer type.
+
+        Connection keys are resolved by exact key, by host name, or by a
+        unique prefix. When multiple profiles are open for the same host, use
+        the full profile key shown by completion or in notifications.
+
+3. Deprecated Commands                                     *conduit-deprecated*
+
 :ConduitOpen {host}                                         *:ConduitOpen*
-        Open a new conduit session to {host}. This sets up the reverse tunnel
-        and remote environment. {host} can include user and port, e.g.,
-        `user@host:2222`.
+        Deprecated in favor of `:Conduit open`.
 
 :ConduitDeploy {host}                                       *:ConduitDeploy*
-        Deploy the conduit environment to {host} without opening a terminal.
-        Useful if you already have an SSH session open elsewhere and want to
-        enable `lvim` there. It prints a `source ...` command that you should
-        run in your remote shell.
+        Deprecated in favor of `:Conduit deploy`.
 
 :ConduitExit {host}                                         *:ConduitExit*
-        Cleanly close the conduit session for {host}, removing remote
-        temporary files and closing the reverse tunnel.
+        Deprecated in favor of `:Conduit exit`.
 
 :ConduitDisconnect {host}                                   *:ConduitDisconnect*
-        Forcefully disconnect from {host}.
+        Deprecated in favor of `:Conduit disconnect`.
 
 :ConduitCopySource {host}                                   *:ConduitCopySource*
-        Copy the `source` command for the remote conduit RC file to the
-        system clipboard.
+        Deprecated in favor of `:Conduit source`.
 
 :ConduitNotifications                                       *:ConduitNotifications*
-        Show a history of conduit notifications in a scratch buffer.
+        Deprecated in favor of `:Conduit notifications`.
 
 :ConduitStopGet {host} [{pattern}]                          *:ConduitStopGet*
-        Stop ongoing 'get' transfers for {host}. Optional {pattern} filters
-        by filename.
+        Deprecated in favor of `:Conduit stop get`.
 
 :ConduitStopPut {host} [{pattern}]                          *:ConduitStopPut*
-        Stop ongoing 'put' transfers for {host}.
+        Deprecated in favor of `:Conduit stop put`.
 
 ==============================================================================
-3. Configuration                                            *conduit-config*
+4. Configuration                                            *conduit-config*
 
 g:conduit_default_split                                     *g:conduit_default_split*
         Default split mode when `lvim` is called without an operation.
@@ -130,15 +167,20 @@ g:conduit_failure_timeout
         Default: 5000
 
 ==============================================================================
-4. Remote Command (lvim)                                    *conduit-lvim*
+5. Remote Command (lvim)                                    *conduit-lvim*
 
 The `lvim` command is injected into the remote shell. It supports the
 following syntax:
 
-`lvim [op] {args...}`
+`lvim [op...] {args...}`
 
 Operations:
-- {op}: Open {args...} file(s) in local Vim. Available {op}s are:
+The `lvim` command accepts one or more operations, followed by filenames or
+arguments. Conduit identifies the longest prefix of arguments that match
+available operations. Multi-word operations like `vert split` are recognized
+automatically without requiring quotes.
+
+Available {op}s are:
     - split
     - sp
     - vsplit
@@ -156,10 +198,38 @@ Operations:
     - tab vsp
     - arga
     - argadd
-- put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}.
-- get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}.
+
+{op}s can also be modifiers:
+    - tab
+    - vert
+    - vertical
+    - hor
+    - horizontal
+    - lefta
+    - leftabove
+    - abo
+    - aboveleft
+    - rightb
+    - rightbelow
+    - bel
+    - belowright
+    - to
+    - topleft
+    - bo
+    - botright
+
+Examples:
+- `lvim vert split file.txt` — Opens file.txt in a vertical split (no quoting needed)
+- `lvim tab split file.txt` — Opens file.txt in a new tab split
+- `lvim belowright split file.txt` — Opens file.txt in a below split
+- `lvim file.txt` — Opens file.txt using |g:conduit_default_split|
+- `lvim -- file.txt` — Explicitly marks file.txt as a filename (useful if a filename matches an operation name)
+
+File Transfer Operations:
+- put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}. If `{remote_file}` is omitted, Conduit uses the remote shell's current directory.
+- get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}. If `{local_file}` is omitted, Conduit uses the local current directory.
 - mget {pat}: Download remote files matching {pat}. If `{pat}` is not quoted, it will expand on the server and each individual file will be downloaded.
-- mput {pat}: Upload local files matching {pat}. `{pat}` must be quoted, otherwise it will be expanded before by the shell before Conduit can access it.
+- mput {pat}: Upload local files matching {pat}. If no destination is provided, Conduit uses the remote shell's current directory. `{pat}` must be quoted, otherwise it will be expanded before by the shell before Conduit can access it.
 
 If no operation is provided, |g:conduit_default_split| is used.
 
@@ -176,11 +246,11 @@ entire Conduit session.
 
 When multiple profiles are open for the same host, Conduit uses a profile key
 that appends a short hash to the host and port, for example
-`user@host:22-1a2b3c4d5e6f`. Use that key with `ConduitExit`,
-`ConduitDisconnect`, `ConduitCopySource`, and `ConduitStop`.
+`user@host:22-1a2b3c4d5e6f`. Use that key with `:Conduit exit`,
+`:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
 
 ==============================================================================
-5. Notifications                                            *conduit-notifications*
+6. Notifications                                            *conduit-notifications*
 
 Conduit uses a built-in notifier (based on popup windows) to show progress for
 file transfers and status updates. If `+multi_byte` is enabled, it uses
