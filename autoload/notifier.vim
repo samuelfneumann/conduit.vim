@@ -37,6 +37,7 @@ var spinner_idxs: dict<number> = {}
 # Carousel State Tracking
 var active_carousels: dict<number> = {}
 var carousel_msgs: dict<string> = {}
+var carousel_prefixes: dict<string> = {}
 var carousel_idxs: dict<number> = {}
 
 # History Tracking
@@ -98,30 +99,34 @@ def GetCarouselInterval(): number
 	return max([50, interval])
 enddef
 
-def CanCarousel(msg: string): bool
-	return GetOverflowMode() ==# 'carousel' && strcharlen(msg) > GetMaxWidth()
+def CanCarousel(msg: string, fixed_prefix: string = ''): bool
+	return GetOverflowMode() ==# 'carousel'
+		&& strcharlen(fixed_prefix .. msg) > GetMaxWidth()
 enddef
 
 def CarouselCycleLen(msg: string): number
 	return strcharlen(msg) + 3
 enddef
 
-def CarouselFrame(msg: string, idx: number): string
+def CarouselFrame(msg: string, idx: number, fixed_prefix: string = ''): string
 	const width = GetMaxWidth()
-	if width <= 0 || strcharlen(msg) <= width
-		return msg
+	const body_width = width - strcharlen(fixed_prefix)
+	if width <= 0 || strcharlen(fixed_prefix .. msg) <= width
+		return fixed_prefix .. msg
+	elseif body_width <= 0
+		return strcharpart(fixed_prefix, 0, width)
 	endif
 
 	const gap = '   '
 	const cycle_len = CarouselCycleLen(msg)
 	const start = idx % cycle_len
 	const tape = msg .. gap .. msg
-	var frame = strcharpart(tape, start, width)
-	const missing = width - strcharlen(frame)
+	var frame = strcharpart(tape, start, body_width)
+	const missing = body_width - strcharlen(frame)
 	if missing > 0
 		frame ..= strcharpart(tape, 0, missing)
 	endif
-	return frame
+	return fixed_prefix .. frame
 enddef
 
 def FormatMsg(msg: string, include_ellipsis: bool): string
@@ -148,19 +153,29 @@ def StopCarousel(winid: number)
 		remove(active_carousels, id_str)
 	endif
 	if has_key(carousel_msgs, id_str) | remove(carousel_msgs, id_str) | endif
+	if has_key(carousel_prefixes, id_str) | remove(carousel_prefixes, id_str) | endif
 	if has_key(carousel_idxs, id_str) | remove(carousel_idxs, id_str) | endif
 enddef
 
-def SetDisplayText(winid: number, in_msg: string, update_history: bool = true, update_positions: bool = true)
+def SetDisplayText(
+		winid: number,
+		in_msg: string,
+		update_history: bool = true,
+		update_positions: bool = true,
+		fixed_prefix: string = '')
 	if win_gettype(winid) !=# 'popup'
 		return
 	endif
 
 	const id_str = string(winid)
-	if CanCarousel(in_msg)
+	if CanCarousel(in_msg, fixed_prefix)
 		carousel_msgs[id_str] = in_msg
+		carousel_prefixes[id_str] = fixed_prefix
 		if !has_key(carousel_idxs, id_str) | carousel_idxs[id_str] = 0 | endif
-		popup_settext(winid, CarouselFrame(in_msg, carousel_idxs[id_str]))
+		popup_settext(
+			winid,
+			CarouselFrame(in_msg, carousel_idxs[id_str], fixed_prefix)
+		)
 		ApplyHighlight(winid)
 
 		if !has_key(active_carousels, id_str)
@@ -172,12 +187,12 @@ def SetDisplayText(winid: number, in_msg: string, update_history: bool = true, u
 		endif
 	else
 		StopCarousel(winid)
-		popup_settext(winid, FormatMsg(in_msg, true))
+		popup_settext(winid, FormatMsg(fixed_prefix .. in_msg, true))
 		ApplyHighlight(winid)
 	endif
 
 	if update_history
-		notif_texts[id_str] = in_msg
+		notif_texts[id_str] = fixed_prefix .. in_msg
 	endif
 	if update_positions
 		UpdatePositions()
@@ -296,7 +311,7 @@ def AnimateSpinner(winid: number, timer_id: number)
     spinner_idxs[id_str] = (idx + 1) % len(spinner_frames)
     
     # Do not update history for intermediate animation frames.
-    SetDisplayText(winid, frame .. " " .. spinner_msgs[id_str], false, false)
+    SetDisplayText(winid, spinner_msgs[id_str], false, false, frame .. " ")
 enddef
 
 def AnimateCarousel(winid: number, timer_id: number)
@@ -307,7 +322,14 @@ def AnimateCarousel(winid: number, timer_id: number)
     endif
 
     carousel_idxs[id_str] = (carousel_idxs[id_str] + 1) % CarouselCycleLen(carousel_msgs[id_str])
-    popup_settext(winid, CarouselFrame(carousel_msgs[id_str], carousel_idxs[id_str]))
+    popup_settext(
+		winid,
+		CarouselFrame(
+			carousel_msgs[id_str],
+			carousel_idxs[id_str],
+			get(carousel_prefixes, id_str, '')
+		)
+	)
     ApplyHighlight(winid)
 enddef
 
@@ -396,6 +418,7 @@ export def StartLoading(msg: string, opts: dict<any> = {}): number
     
     var loading_opts = extendnew(opts, {persistent: true})
     var winid = Send(initial_msg, loading_opts)
+	SetDisplayText(winid, msg, true, false, spinner_frames[0] .. " ")
     
     var id_str = string(winid)
     spinner_msgs[id_str] = msg
@@ -437,8 +460,7 @@ export def UpdateLoading(winid: number, new_msg: string)
         
         # Construct the full string and pass it to Modify() 
         # so that our syntax highlighting logic still applies!
-        var full_msg = frame .. " " .. new_msg
-        Modify(winid, full_msg)
+        SetDisplayText(winid, new_msg, true, true, frame .. " ")
     endif
 enddef
 
@@ -447,7 +469,9 @@ export def StartProgress(msg: string, opts: dict<any> = {}): number
     
     var progress_opts = {persistent: true}
     extend(progress_opts, opts)
-    return Send(empty_bar .. "  " .. msg, progress_opts)
+    var winid = Send(empty_bar .. "  " .. msg, progress_opts)
+	SetDisplayText(winid, msg, true, false, empty_bar .. "  ")
+	return winid
 enddef
 
 export def UpdateProgress(winid: number, current: number, total: number, msg: string = "")
@@ -463,10 +487,11 @@ export def UpdateProgress(winid: number, current: number, total: number, msg: st
     var empty_len = pbar_width - filled_len
     var bar = repeat(pbar_filled, filled_len) .. repeat(pbar_empty, empty_len)
     
-    var full_msg = bar
-    if msg != "" | full_msg ..= "  " .. msg | endif
-    
-    Modify(winid, full_msg)
+    if msg != ""
+		SetDisplayText(winid, msg, true, true, bar .. "  ")
+	else
+		Modify(winid, bar)
+	endif
 enddef
 
 # Opens a scratch buffer displaying past notifications
