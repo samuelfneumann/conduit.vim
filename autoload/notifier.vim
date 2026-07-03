@@ -43,6 +43,7 @@ hi def link NotifySuccess String
 hi def link NotifyError Error
 hi def link NotifyWarning WarningMsg
 hi def link NotifyInfo Question
+hi def link NotifyOp Identifier
 
 def InitProp(name: string, hl_group: string)
     if empty(prop_type_get(name))
@@ -59,8 +60,22 @@ InitProp("notify_success", "NotifySuccess")
 InitProp("notify_error", "NotifyError")
 InitProp("notify_warning", "NotifyWarning")
 InitProp("notify_info", "NotifyInfo")
+InitProp("notify_op", "NotifyOp")
 
 # ── Internal Helpers ─────────────────────────────────────────────────────
+def AddHighlight(bufnr: number, linenr: number, start_byte: number, end_byte: number, prop_type: string)
+	if start_byte == -1 || prop_type == ""
+		return
+	endif
+
+	# Columns are 1-based in Vim, so we add 1 to start_byte.
+	prop_add(linenr, start_byte + 1, {
+		length: end_byte - start_byte,
+		type: prop_type,
+		bufnr: bufnr,
+	})
+enddef
+
 def FormatMsg(msg: string, include_ellipsis: bool): string
 	if g:notifier_wrap
 		return msg
@@ -88,6 +103,9 @@ def ApplyHighlight(winid: number, linenr: number=1)
     # Clear any existing highlights on the first line
     prop_clear(linenr, 1, {bufnr: bufnr})
 
+    var op_match = matchstrpos(text, '\[\(get\|put\|mget\|mput\)\]')
+	AddHighlight(bufnr, linenr, op_match[1], op_match[2], "notify_op")
+
     # Find the FIRST occurrence of any of the target symbols.
     # In ASCII mode, we are more restrictive to avoid highlighting characters in words.
     var pattern = has('multi_byte') ? '[✓×!?→]' : '\v%(^|[ ])\zs(\=|x|!|\?|-\>)\ze%([ ]|$)'
@@ -95,10 +113,8 @@ def ApplyHighlight(winid: number, linenr: number=1)
     var start_byte = match_info[1]
     var end_byte = match_info[2]
 
-    # If no special character is found, we just exit
-    if start_byte == -1
-        return
-    endif
+    # If no special character is found, only the op highlight applies.
+    if start_byte == -1 | return | endif
 
     var matched_char = match_info[0]
     var prop_type = ""
@@ -115,14 +131,7 @@ def ApplyHighlight(winid: number, linenr: number=1)
         prop_type = "notify_right_arrow"
     endif
 
-    if prop_type != ""
-        # Columns are 1-based in Vim, so we add 1 to start_byte
-        prop_add(linenr, start_byte + 1, { 
-            length: end_byte - start_byte, 
-            type: prop_type,
-            bufnr: bufnr
-        })
-    endif
+	AddHighlight(bufnr, linenr, start_byte, end_byte, prop_type)
 enddef
 
 def UpdatePositions()
