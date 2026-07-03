@@ -1,8 +1,9 @@
 vim9script
 
 # ── Configuration & State ────────────────────────────────────────────────
-g:notifier_maxwidth = &columns / 2
-g:notifier_wrap = true
+g:notifier_maxwidth = get(g:, 'notifier_maxwidth', &columns / 2)
+g:notifier_overflow = get(g:, 'notifier_overflow', 'carousel')
+g:notifier_carousel_interval = get(g:, 'notifier_carousel_interval', 300)
 const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth / 3))])])
 
 var checkmark: string = has('multi_byte') ? '✓' : '='
@@ -32,6 +33,11 @@ endif
 var active_spinners: dict<number> = {} 
 var spinner_msgs: dict<string> = {}    
 var spinner_idxs: dict<number> = {}    
+
+# Carousel State Tracking
+var active_carousels: dict<number> = {}
+var carousel_msgs: dict<string> = {}
+var carousel_idxs: dict<number> = {}
 
 # History Tracking
 var history: list<string> = []
@@ -76,20 +82,106 @@ def AddHighlight(bufnr: number, linenr: number, start_byte: number, end_byte: nu
 	})
 enddef
 
-def FormatMsg(msg: string, include_ellipsis: bool): string
-	if g:notifier_wrap
+def GetMaxWidth(): number
+	return max([1, !empty(g:notifier_maxwidth) ? float2nr(g:notifier_maxwidth) : &columns])
+enddef
+
+def GetOverflowMode(): string
+	return g:notifier_overflow
+enddef
+
+def GetCarouselInterval(): number
+	const interval = get(g:, 'notifier_carousel_interval', 300)
+	if type(interval) != v:t_number
+		return 300
+	endif
+	return max([50, interval])
+enddef
+
+def CanCarousel(msg: string): bool
+	return GetOverflowMode() ==# 'carousel' && strcharlen(msg) > GetMaxWidth()
+enddef
+
+def CarouselCycleLen(msg: string): number
+	return strcharlen(msg) + 3
+enddef
+
+def CarouselFrame(msg: string, idx: number): string
+	const width = GetMaxWidth()
+	if width <= 0 || strcharlen(msg) <= width
 		return msg
-	elseif strcharlen(msg) > g:notifier_maxwidth # truncate
+	endif
+
+	const gap = '   '
+	const cycle_len = CarouselCycleLen(msg)
+	const start = idx % cycle_len
+	const tape = msg .. gap .. msg
+	var frame = strcharpart(tape, start, width)
+	const missing = width - strcharlen(frame)
+	if missing > 0
+		frame ..= strcharpart(tape, 0, missing)
+	endif
+	return frame
+enddef
+
+def FormatMsg(msg: string, include_ellipsis: bool): string
+	if GetOverflowMode() ==# 'wrap'
+		return msg
+	elseif strcharlen(msg) > GetMaxWidth() # truncate
+		const width = GetMaxWidth()
 		if include_ellipsis && has('multi_byte')
-			return msg[ : g:notifier_maxwidth - 2] .. "…"
-		elseif include_ellipsis
-			return msg[ : g:notifier_maxwidth - 4] .. "..."
+			return strcharpart(msg, 0, width - 1) .. "…"
+		elseif include_ellipsis && width > 3
+			return strcharpart(msg, 0, width - 3) .. "..."
 		else
-			return msg[ : g:notifier_maxwidth - 1]
+			return strcharpart(msg, 0, width)
 		endif
 	endif
 
 	return msg
+enddef
+
+def StopCarousel(winid: number)
+	const id_str = string(winid)
+	if has_key(active_carousels, id_str)
+		timer_stop(active_carousels[id_str])
+		remove(active_carousels, id_str)
+	endif
+	if has_key(carousel_msgs, id_str) | remove(carousel_msgs, id_str) | endif
+	if has_key(carousel_idxs, id_str) | remove(carousel_idxs, id_str) | endif
+enddef
+
+def SetDisplayText(winid: number, in_msg: string, update_history: bool = true, update_positions: bool = true)
+	if win_gettype(winid) !=# 'popup'
+		return
+	endif
+
+	const id_str = string(winid)
+	if CanCarousel(in_msg)
+		carousel_msgs[id_str] = in_msg
+		if !has_key(carousel_idxs, id_str) | carousel_idxs[id_str] = 0 | endif
+		popup_settext(winid, CarouselFrame(in_msg, carousel_idxs[id_str]))
+		ApplyHighlight(winid)
+
+		if !has_key(active_carousels, id_str)
+			active_carousels[id_str] = timer_start(
+				GetCarouselInterval(),
+				(t) => AnimateCarousel(winid, t),
+				{repeat: -1}
+			)
+		endif
+	else
+		StopCarousel(winid)
+		popup_settext(winid, FormatMsg(in_msg, true))
+		ApplyHighlight(winid)
+	endif
+
+	if update_history
+		notif_texts[id_str] = in_msg
+	endif
+	if update_positions
+		UpdatePositions()
+	endif
 enddef
 
 def ApplyHighlight(winid: number, linenr: number=1)
@@ -181,7 +273,10 @@ def OnPopupClose(winid: number, result: any)
         remove(spinner_idxs, id_str)
     endif
 
-    # 3. Remove from active list and restack
+	# 3. Clean up timer if this notification is carouseling
+	StopCarousel(winid)
+
+    # 4. Remove from active list and restack
     var idx = index(active_notifs, winid)
     if idx >= 0
         remove(active_notifs, idx)
@@ -200,10 +295,20 @@ def AnimateSpinner(winid: number, timer_id: number)
     var frame = spinner_frames[idx]
     spinner_idxs[id_str] = (idx + 1) % len(spinner_frames)
     
-    var full_msg = FormatMsg(frame .. " " .. spinner_msgs[id_str], true)
-    # Use popup_settext directly here so we don't spam the history log 
-    # with intermediate animation frames via Modify()
-    popup_settext(winid, full_msg)
+    # Do not update history for intermediate animation frames.
+    SetDisplayText(winid, frame .. " " .. spinner_msgs[id_str], false, false)
+enddef
+
+def AnimateCarousel(winid: number, timer_id: number)
+    var id_str = string(winid)
+    if index(active_notifs, winid) == -1 || !has_key(carousel_msgs, id_str)
+        timer_stop(timer_id)
+        return
+    endif
+
+    carousel_idxs[id_str] = (carousel_idxs[id_str] + 1) % CarouselCycleLen(carousel_msgs[id_str])
+    popup_settext(winid, CarouselFrame(carousel_msgs[id_str], carousel_idxs[id_str]))
+    ApplyHighlight(winid)
 enddef
 
 # ── Public API ───────────────────────────────────────────────────────────
@@ -235,8 +340,8 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
         line: p_line,
         col: p_col,
         pos: p_pos,
-		wrap: true,
-		maxwidth: !empty(g:notifier_maxwidth) ? g:notifier_maxwidth : &columns,
+		wrap: GetOverflowMode() ==# 'wrap',
+		maxwidth: GetMaxWidth(),
         highlight: 'Normal',
         padding: [0, 1, 0, 1],
         borderchars: border_chars,
@@ -250,7 +355,7 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
     
     extend(default_opts, opts)
 
-	var msg = FormatMsg(in_msg, true)
+	var msg = CanCarousel(in_msg) ? CarouselFrame(in_msg, 0) : FormatMsg(in_msg, true)
 
     var winid: number
     if default_opts.persistent
@@ -260,12 +365,9 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
         # Use popup_notification for ephemeral messages that close on keypress
         winid = popup_notification(msg, default_opts)
     endif
-    ApplyHighlight(winid)
-    
-    # Track the latest message for the history log
-    notif_texts[string(winid)] = in_msg
-    
+
     add(active_notifs, winid)
+	SetDisplayText(winid, in_msg, true, false)
     UpdatePositions()
     
     return winid
@@ -273,13 +375,7 @@ enddef
 
 export def Modify(winid: number, in_msg: string)
     if win_gettype(winid) == 'popup'
-
-		var msg = FormatMsg(in_msg, true)
-
-        popup_settext(winid, msg)
-        ApplyHighlight(winid)
-        notif_texts[string(winid)] = in_msg # Update the history tracker
-        UpdatePositions() 
+		SetDisplayText(winid, in_msg)
     endif
 enddef
 

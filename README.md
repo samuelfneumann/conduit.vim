@@ -170,7 +170,8 @@ let g:conduit_default_control_persist = '4h'
 ### Notifier Styling
 ```vim
 let g:notifier_maxwidth = 60
-let g:notifier_wrap = 0 " Truncate long messages with ... or … if has('multi_byte')
+let g:notifier_overflow = 'carousel' " Or: 'wrap', 'truncate'
+let g:notifier_carousel_interval = 300
 ```
 
 ## 🔍 Troubleshooting
