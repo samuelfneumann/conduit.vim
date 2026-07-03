@@ -267,13 +267,13 @@ g:notifier_overflow                                     *g:notifier_overflow*
                 'wrap'      wrap onto multiple lines
                 'truncate'  keep one line and trim with an ellipsis
                 'carousel'  keep one line and scroll through the full message
-        Default: 'wrap'
+        Default: 'carousel'
         In carousel mode, loading indicators such as spinners and progress bars
         stay fixed while the message text scrolls.
 
 g:notifier_carousel_interval                 *g:notifier_carousel_interval*
         Delay in milliseconds between carousel frames.
-        Default: 300
+        Default: 100
 
 They automatically adapt to `+multi_byte` support.
 

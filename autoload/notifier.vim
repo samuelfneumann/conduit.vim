@@ -3,7 +3,7 @@ vim9script
 # ── Configuration & State ────────────────────────────────────────────────
 g:notifier_maxwidth = get(g:, 'notifier_maxwidth', &columns / 2)
 g:notifier_overflow = get(g:, 'notifier_overflow', 'carousel')
-g:notifier_carousel_interval = get(g:, 'notifier_carousel_interval', 300)
+g:notifier_carousel_interval = get(g:, 'notifier_carousel_interval', 100)
 const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth / 3))])])
 
 var checkmark: string = has('multi_byte') ? '✓' : '='
