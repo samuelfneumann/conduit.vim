@@ -174,8 +174,135 @@ class Basic extends Notification
 	enddef
 endclass
 
-var active_spinners: dict<Spinner> = {} 
-var active_pbars: dict<Progress> = {} 
+class NotificationManager
+	static const Instance = NotificationManager.new()
+
+	var active_spinners: dict<Spinner>
+	var active_pbars: dict<Progress>
+	var active_basic: dict<Basic>
+
+	# History Tracking
+	var history: list<string> = []
+	var notif_texts: dict<string> = {} # winid (string) -> latest message text
+	var time_format = "%H:%M:%S"
+	var history_limit: number = 100
+
+	def new()
+	enddef
+	
+	def UpdateLatestMessage(winid: number, msg: string)
+		const id_str = string(winid)
+		this.notif_texts[id_str] = msg
+	enddef
+
+	def LogHistory(winid: number)
+		const id_str = string(winid)
+        const time_str = strftime(this.time_format)
+        add(this.history, printf("[%s] %s", time_str, this.notif_texts[id_str]))
+        this.notif_texts->remove(id_str)
+
+        # Keep history to a maximum of `history_limit` entries to save memory
+        if len(this.history) > this.history_limit
+            remove(history, 0)
+        endif
+	enddef
+
+	def Register(notif: Notification)
+		const id_str = string(notif.winid)
+		if notif.Kind() == NotificationKind.Spinner
+			active_spinners[id_str] = <Spinner>notif
+		elseif notif.Kind() == NotificationKind.Progress
+			active_pbars[id_str] = <Progress>notif
+		elseif notif.Kind() == NotificationKind.Basic
+			active_basic[id_str] = <Basic>notif
+		endif
+	enddef
+
+	def GetNotificationBy(winid: number): Notification
+		const id_str = string(winid)
+		if has_key(active_spinners, id_str)
+			return this.active_spinners[id_str]
+		elseif has_key(active_pbars, id_str)
+			return this.active_pbars[id_str]
+		elseif has_key(active_basic, id_str)
+			return this.active_basic[id_str]
+		endif
+
+		throw errors.Error.InvalidNotificationId.Format(
+			$"no notification with id {winid}"
+		)
+	enddef
+
+	def InCache(winid: number, cache: dict<Notification>): bool
+		const id_str = string(winid)
+		return has_key(cache, id_str)
+	enddef
+
+	def IsActiveSpinnerBy(winid: number): bool
+		return this.InCache(winid, this.active_spinners)
+	enddef
+
+	def IsActiveProgressBy(winid: number): bool
+		return this.InCache(winid, this.active_pbars)
+	enddef
+
+	def IsActiveBasicBy(winid: number): bool
+		return this.InCache(winid, this.active_basic)
+	enddef
+
+	def IsActiveBy(winid: number): bool
+		return this.IsActiveSpinnerBy(winid) 
+			|| this.IsActiveProgressBy(winid)
+			|| this.IsActiveBasicBy(winid)
+	enddef
+
+	def IsActive(notif: Notification): bool
+		return this.IsActiveBy(notif.winid)
+	enddef
+
+	def GetActive(): list<number>
+		return keys(this.active_spinners)
+			->extend(keys(this.active_pbars))
+			->extend(keys(this.active_basic))
+	enddef
+
+	def RemoveBy(winid: number)
+		const id_str = string(winid)
+
+		if has_key(active_spinners, id_str)
+			remove(active_spinners, id_str)
+		elseif has_key(active_pbars, id_str)
+			remove(active_pbars, id_str)
+		elseif has_key(active_basic, id_str)
+			remove(active_basic, id_str)
+		endif
+	enddef
+
+	def DismissBy(winid: number)
+		const id_str = string(winid)
+		if this.IsActive(id_str)[0]
+			popup_close(winid)
+			this.RemoveBy(winid)
+		endif
+	enddef
+
+	def Dismiss(notif: Notification)
+		if this.IsActive(notif)[0]
+			popup_close(notif.winid)
+			this.RemoveBy(notif.winid)
+		endif
+	enddef
+
+	def DismissAll(notif: Notification)
+		for notif in values(this.active_spinners) | this.Dismiss(notif) | endif
+		for notif in values(this.active_pbars) | this.Dismiss(notif) | endif
+		for notif in values(this.active_basic) | this.Dismiss(notif) | endif
+	enddef
+endclass
+
+# var manager = NotificationManager.Instance
+# var active_spinners: dict<Spinner> = {} 
+# var active_pbars: dict<Progress> = {} 
 
 # Carousel State Tracking
 var active_carousels: dict<number> = {}
