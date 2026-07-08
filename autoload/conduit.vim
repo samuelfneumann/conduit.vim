@@ -410,7 +410,7 @@ enddef
 def ParseConduitOpenArgs(args: string): dict<any>
 	var tokens = split(args)
 	if empty(tokens)
-		error.Error.MissingHost.Format('missing host')
+		throw error.Error.MissingHost.Format('missing host')
 	endif
 
 	var ssh_options: list<string> = []
