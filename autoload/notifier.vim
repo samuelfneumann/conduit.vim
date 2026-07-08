@@ -1,5 +1,7 @@
 vim9script
 
+import autoload 'error.vim'
+
 # ── Configuration & State ────────────────────────────────────────────────
 g:notifier_maxwidth = get(g:, 'notifier_maxwidth', &columns / 2)
 g:notifier_overflow = get(g:, 'notifier_overflow', 'carousel')
@@ -31,6 +33,114 @@ else
 	spinner_frames = ['/', '-', '\', '|']
 endif
 var active_spinners: dict<number> = {} 
+
+abstract class Notification
+	const winid: number
+	var msg: string
+
+	def SetMessage(msg: string)
+		this.msg = msg
+	enddef
+
+
+	abstract def Message(): string
+	abstract def Formatted(): string
+	abstract def Update(opts: dict<any>)
+endclass
+
+class Progress extends Notification
+	static const pbar_filled: string = pbar_filled
+	static const pbar_empty: string = pbar_empty
+	static const width: number = pbar_width
+
+	var p: float
+
+	def new(winid: number, msg: string)
+		this.winid = winid
+		this.msg = msg
+		this.p = 0.0
+	enddef
+
+	def Message(): string
+		return this.msg
+	enddef
+
+	def Formatted(): string
+		return this.Frame() .. '  ' .. this.Message()
+	enddef
+
+	def Frame(): string
+		const filled_len = float2nr(trunc(this.p * Progress.pbar_width))
+		const empty_len = Progress.pbar_width - filled_len
+		return repeat(pbar_filled, filled_len) .. repeat(pbar_empty, empty_len)
+	enddef
+
+	def Update(opts: dict<any>)
+		if !has_key(opts, 'percentage')
+			throw error.Error.MissingNotifierOptionKey.Format(
+				"missing key 'percentage'",
+			)
+		endif
+		this.p = opts.percentage
+	enddef
+endclass
+
+class Spinner extends Notification
+	static const frames = spinner_frames
+	const timer_id: number
+	var i: number
+
+	def new(winid: number, msg: string)
+		this.winid = winid
+		this.msg = msg
+		this.i = 0
+		this.timer_id = this.Spin()
+	enddef
+
+	def Spin(): number
+		return timer_start(100, (t) => AnimateSpinner(this, t), {repeat: -1})
+	enddef
+
+	def Message(): string
+		return this.msg
+	enddef
+
+	def Formatted(): string
+		return this.Frame() .. ' ' .. this.Message()
+	enddef
+
+	def Frame(): string
+		return Spinner.frames[this.i]
+	enddef
+
+	def Update(opts: dict<any>)
+		this.i = (this.i + 1) % len(Spinner.frames)
+	enddef
+
+	def Stop()
+		if this.timer_id > -1
+			timer_stop(this.timer_id)
+		endif
+	enddef
+endclass
+
+class Basic extends Notification
+	def new(winid: number, msg: string)
+		this.winid = winid
+		this.msg = msg
+	enddef
+
+	def Message(): string
+		return this.msg
+	enddef
+
+	def Formatted(): string
+		return this.Message()
+	enddef
+
+	def Update(opts: dict<any>)
+	enddef
+endclass
 var spinner_msgs: dict<string> = {}    
 var spinner_idxs: dict<number> = {}    
 
