@@ -32,7 +32,6 @@ if has('multi_byte')
 else
 	spinner_frames = ['/', '-', '\', '|']
 endif
-var active_spinners: dict<number> = {} 
 
 abstract class Notification
 	const winid: number
@@ -141,8 +140,8 @@ class Basic extends Notification
 	def Update(opts: dict<any>)
 	enddef
 endclass
-var spinner_msgs: dict<string> = {}    
-var spinner_idxs: dict<number> = {}    
+
+var active_spinners: dict<Spinner> = {} 
 
 # Carousel State Tracking
 var active_carousels: dict<number> = {}
@@ -334,11 +333,12 @@ def AddCarouselOpHighlight(winid: number, bufnr: number, linenr: number, text: s
 enddef
 
 def SetDisplayText(
-		winid: number,
-		in_msg: string,
-		update_history: bool = true,
-		update_positions: bool = true,
-		fixed_prefix: string = '')
+	winid: number,
+	in_msg: string,
+	update_history: bool = true,
+	update_positions: bool = true,
+	fixed_prefix: string = '',
+)
 	if win_gettype(winid) !=# 'popup'
 		return
 	endif
@@ -460,10 +460,8 @@ def OnPopupClose(winid: number, result: any)
 
     # 2. Clean up timer if this was a loading spinner
     if has_key(active_spinners, id_str)
-        timer_stop(active_spinners[id_str])
+        active_spinners[id_str].Stop()
         remove(active_spinners, id_str)
-        remove(spinner_msgs, id_str)
-        remove(spinner_idxs, id_str)
     endif
 
 	# 3. Clean up timer if this notification is carouseling
@@ -477,19 +475,16 @@ def OnPopupClose(winid: number, result: any)
     endif
 enddef
 
-def AnimateSpinner(winid: number, timer_id: number)
-    var id_str = string(winid)
-    if index(active_notifs, winid) == -1
-        timer_stop(timer_id)
+def AnimateSpinner(spinner: Spinner, timer_id: number)
+    var id_str = string(spinner.winid)
+    if index(active_notifs, spinner.winid) == -1
+        timer_stop(spinner.timer_id)
         return
     endif
     
-    var idx = spinner_idxs[id_str]
-    var frame = spinner_frames[idx]
-    spinner_idxs[id_str] = (idx + 1) % len(spinner_frames)
-    
     # Do not update history for intermediate animation frames.
-    SetDisplayText(winid, spinner_msgs[id_str], false, false, frame .. " ")
+	spinner.Update({})
+    SetDisplayText(spinner.winid, spinner.Message(), false, false, spinner.Frame() .. " ")
 enddef
 
 def AnimateCarousel(winid: number, timer_id: number)
@@ -592,18 +587,14 @@ export def DismissAll()
 enddef
 
 export def StartLoading(msg: string, opts: dict<any> = {}): number
-    var initial_msg = spinner_frames[0] .. " " .. msg
-    
     var loading_opts = extendnew(opts, {persistent: true})
-    var winid = Send(initial_msg, loading_opts)
-	SetDisplayText(winid, msg, true, false, spinner_frames[0] .. " ")
+    var winid = Send(msg, loading_opts)
+	var spinner = Spinner.new(winid, msg)
+
+	SetDisplayText(winid, spinner.Message(), true, false, spinner.Frame() .. " ")
     
-    var id_str = string(winid)
-    spinner_msgs[id_str] = msg
-    spinner_idxs[id_str] = 1
-    
-    var timer_id = timer_start(100, (t) => AnimateSpinner(winid, t), {repeat: -1})
-    active_spinners[id_str] = timer_id
+    var id_str = string(spinner.winid)
+    active_spinners[id_str] = spinner
     
     return winid
 enddef
@@ -611,10 +602,9 @@ enddef
 export def StopLoading(winid: number, final_msg: string = "")
     var id_str = string(winid)
     if has_key(active_spinners, id_str)
-        timer_stop(active_spinners[id_str])
+		var spinner = active_spinners[id_str]
+		spinner.Stop()
         remove(active_spinners, id_str)
-        remove(spinner_msgs, id_str)
-        remove(spinner_idxs, id_str)
     endif
     
     if final_msg != ""
@@ -628,17 +618,14 @@ export def UpdateLoading(winid: number, new_msg: string)
     var id_str = string(winid)
     
     # Check if this popup is actually an active spinner
-    if has_key(spinner_msgs, id_str)
+    if has_key(active_spinners, id_str)
         # Update the base message in our tracker
-        spinner_msgs[id_str] = new_msg
-        
-        # Grab the current frame so the animation doesn't skip a beat
-        var current_idx = spinner_idxs[id_str]
-        var frame = spinner_frames[current_idx]
+		var spinner = active_spinners[id_str]
+		spinner.SetMessage(new_msg)
         
         # Construct the full string and pass it to Modify() 
         # so that our syntax highlighting logic still applies!
-        SetDisplayText(winid, new_msg, true, true, frame .. " ")
+        SetDisplayText(spinner.winid, spinner.Message(), true, true, spinner.Frame() .. " ")
     endif
 enddef
 
