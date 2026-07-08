@@ -34,16 +34,20 @@ else
 endif
 
 abstract class Notification
-	const winid: number
+	var winid: number
 	var msg: string
 
 	def SetMessage(msg: string)
 		this.msg = msg
 	enddef
 
+	def SetWinID(winid: number)
+		this.winid = winid
+	enddef
 
 	abstract def Message(): string
 	abstract def Formatted(): string
+	abstract def Frame(): string
 	abstract def Update(opts: dict<any>)
 endclass
 
@@ -69,8 +73,8 @@ class Progress extends Notification
 	enddef
 
 	def Frame(): string
-		const filled_len = float2nr(trunc(this.p * Progress.pbar_width))
-		const empty_len = Progress.pbar_width - filled_len
+		const filled_len = float2nr(trunc(this.p * Progress.width))
+		const empty_len = Progress.width - filled_len
 		return repeat(pbar_filled, filled_len) .. repeat(pbar_empty, empty_len)
 	enddef
 
@@ -133,6 +137,10 @@ class Basic extends Notification
 		return this.msg
 	enddef
 
+	def Frame(): string
+		return ""
+	enddef
+
 	def Formatted(): string
 		return this.Message()
 	enddef
@@ -142,6 +150,7 @@ class Basic extends Notification
 endclass
 
 var active_spinners: dict<Spinner> = {} 
+var active_pbars: dict<Progress> = {} 
 
 # Carousel State Tracking
 var active_carousels: dict<number> = {}
@@ -630,32 +639,38 @@ export def UpdateLoading(winid: number, new_msg: string)
 enddef
 
 export def StartProgress(msg: string, opts: dict<any> = {}): number
-    var empty_bar = repeat(pbar_empty, pbar_width)
+	var bar = Progress.new(-1, msg)
     
     var progress_opts = {persistent: true}
     extend(progress_opts, opts)
-    var winid = Send(empty_bar .. "  " .. msg, progress_opts)
-	SetDisplayText(winid, msg, true, false, empty_bar .. "  ")
-	return winid
+    bar.SetWinID(Send(bar.Frame() .. "  " .. msg, progress_opts))
+
+	const id_str = string(bar.winid)
+	active_pbars[id_str] = bar
+
+	SetDisplayText(bar.winid, bar.Message(), true, false, bar.Frame() .. "  ")
+	return bar.winid
 enddef
 
 export def UpdateProgress(winid: number, current: number, total: number, msg: string = "")
+	const id_str = string(winid)
+	if !has_key(active_pbars, id_str)
+		return
+	endif
+
+	final pbar = active_pbars[id_str]
+
     var percentage = 0.0
     if total > 0 | percentage = (current + 0.0) / (total + 0.0) | endif
     if percentage > 1.0 | percentage = 1.0 | endif
     if percentage < 0.0 | percentage = 0.0 | endif
-    
-	# We use trunc instead of round so that the bar is only completely filled
-	# once we reach 100%. With round, we will fill the bar when we are >= 95%
-	# complete
-    var filled_len = float2nr(trunc(percentage * pbar_width))
-    var empty_len = pbar_width - filled_len
-    var bar = repeat(pbar_filled, filled_len) .. repeat(pbar_empty, empty_len)
-    
+
+	pbar.Update({percentage: percentage})
+
     if msg != ""
-		SetDisplayText(winid, msg, true, true, bar .. "  ")
+		SetDisplayText(pbar.winid, pbar.Message(), true, true, pbar.Frame() .. "  ")
 	else
-		Modify(winid, bar)
+		Modify(winid, pbar.Frame())
 	endif
 enddef
 
