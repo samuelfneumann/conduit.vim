@@ -33,6 +33,16 @@ else
 	spinner_frames = ['/', '-', '\', '|']
 endif
 
+# TODO:
+# 1. We should have a NotificationManger, right now, that is `active_spinners`
+#    and `active_pbars`
+# 2. Each Notification gets a reference to the NotificationManager
+# 3. Notifications get a Dismiss() method. This stops any animations in the
+#    notification and the Notification removes itself from the
+#    NotificationManager.
+# 4. The NotificationManager then holds all Notifications, and it manages their
+#    animations, stacking, carouselling, etc.
+
 abstract class Notification
 	var winid: number
 	var msg: string
