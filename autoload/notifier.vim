@@ -756,8 +756,13 @@ export def Modify(winid: number, in_msg: string, opts: dict<any>)
     endif
 enddef
 
-export def Dismiss(winid: number)
-	NotificationManager.Instance.DismissBy(winid)
+export def Dismiss(winid: number, after: number = 0): number
+	if after == 0
+		NotificationManager.Instance.DismissBy(winid)
+		return -1
+	else
+		return timer_start(after, (_) => NotificationManager.Instance.DismissBy(winid))
+	endif
 enddef
 
 export def DismissAll()
@@ -776,14 +781,19 @@ export def StartLoading(msg: string, opts: dict<any> = {}): number
     return winid
 enddef
 
-export def StopLoading(winid: number, final_msg: string = "", frame: bool=false)
+export def StopLoading(
+	winid: number,
+	final_msg: string = "",
+	frame: bool=false,
+	after: number = 0,
+): number
     var id_str = string(winid)
 
     if final_msg != ""
-        Modify(winid, final_msg, {frame: frame})
-    else
-        NotificationManager.Instance.DismissBy(winid)
-    endif
+        timer_start(0, (_) => Modify(winid, final_msg, {frame: frame}))
+	endif
+
+	return Dismiss(winid, after)
 enddef
 
 export def UpdateLoading(winid: number, new_msg: string)

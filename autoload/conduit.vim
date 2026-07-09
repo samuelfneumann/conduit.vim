@@ -742,7 +742,6 @@ def OnLine(conn: Connection, line: string)
 	elseif !empty(ops)
 		var i = 0
 		for path in paths
-			# timer_start(0, (_) => OpenFile(conn, ops, path))
 			OpenFile(conn, ops, path)
 		endfor
 	else
@@ -866,10 +865,10 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 				# Briefly show the full, final progress bar and success
 				# message, then dismiss
 				notifier.UpdateProgress(notif, 100, 100, $"✓ {display_op} [success] {notif_suffix}")
-				timer_start(GetSuccessTimeout(), (_) => notifier.Dismiss(notif))
+				notifier.Dismiss(notif, GetSuccessTimeout())
 			else
 				notifier.Modify(notif, $"× {display_op} [failed (error: {code})] {notif_suffix}")
-				timer_start(GetFailureTimeout(), (_) => notifier.Dismiss(notif))
+				notifier.Dismiss(notif, GetFailureTimeout())
 			endif
 
 			# Remove the completed op from the list of stored operations
@@ -1481,8 +1480,12 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 		timer_start(0, (_) => {
 			const open_control_master_err_code = OpenConduitControlMaster(conn)
 			if open_control_master_err_code != 0
-				notifier.StopLoading(notif, $"× Could not open control master (ssh error: {open_control_master_err_code})", false)
-				timer_start(GetFailureTimeout(), (__) => notifier.Dismiss(notif))
+				notifier.StopLoading(
+					notif,
+					$"× Could not open control master (ssh error: {open_control_master_err_code})",
+					false,
+					GetFailureTimeout(),
+				)
 				return 
 			endif
 
@@ -1491,8 +1494,12 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			redraw
 
 			if !EnsureListener(conn)
-				notifier.StopLoading(notif, $"× Could not start listener", false)
-				timer_start(GetFailureTimeout(), (__) => notifier.Dismiss(notif))
+				notifier.StopLoading(
+					notif,
+					$"× Could not start listener",
+					false,
+					GetFailureTimeout(),
+				)
 				return 
 			endif
 
@@ -1524,12 +1531,20 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 							ssh_cmd, {
 							exit_cb: (___, code) => {
 								if code == 0
-									notifier.StopLoading(notif, $"✓ Success", false)
-									timer_start(2000, (____) => notifier.Dismiss(notif))
+									notifier.StopLoading(
+										notif,
+										$"✓ Success",
+										false,
+										GetSuccessTimeout()
+									)
 									ConduitCopySourceCmd(GetConnectionsDictKey(conn))
 								else
-									notifier.StopLoading(notif, $"× Failed (error: {code})", false)
-									timer_start(GetFailureTimeout(), (____) => notifier.Dismiss(notif))
+									notifier.StopLoading(
+										notif,
+										$"× Failed (error: {code})",
+										false,
+										GetFailureTimeout(),
+									)
 								endif
 								redraw
 							}}
@@ -1593,14 +1608,16 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					# User a timer for the success message since the ssh
 					# connection is already authenticated, and the previous
 					# message will only be shown briefly otherwise
-					timer_start(1000, (____) => notifier.StopLoading(notif, $"✓ Success", false))
-					timer_start(GetSuccessTimeout(), (_____) => notifier.Dismiss(notif))
+					notifier.StopLoading(
+						notif, $"✓ Success", false, GetSuccessTimeout(),
+					)
 					redraw
 				},
 				() => {
-					notifier.StopLoading(notif, $"× Failed", false)
+					notifier.StopLoading(
+						notif, $"× Failed", false, GetFailureTimeout(),
+					)
 					MaybeCleanup(conn)
-					timer_start(GetFailureTimeout(), (____) => notifier.Dismiss(notif))
 					redraw
 				},
 			) 
@@ -1616,8 +1633,12 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 				OpenSession()
 				redraw
 			else
-				notifier.StopLoading(notif, $"× Could not clean up stale files on remote, exiting.", false)
-				timer_start(GetFailureTimeout(), (_) => notifier.Dismiss(notif))
+				notifier.StopLoading(
+					notif,
+					$"× Could not clean up stale files on remote, exiting.",
+					false,
+					GetFailureTimeout(),
+				)
 				redraw
 			endif
 		})
@@ -1650,11 +1671,13 @@ export def ConduitExitCmd(host: string)
 			# session would break the others. Let ControlPersist or an explicit
 			# SSH shutdown handle the master lifetime.
 			if success
-				timer_start(500, (_) => notifier.StopLoading(notif, $"✓ Exited from {host}", false))
-				timer_start(3500, (_) => notifier.Dismiss(notif))
+				notifier.StopLoading(
+					notif, $"✓ Exited from {host}", false, GetSuccessTimeout(),
+				)
 			else
-				timer_start(500, (_) => notifier.StopLoading(notif, $"× Could not exit from {host}", false))
-				timer_start(5500, (_) => notifier.Dismiss(notif))
+				notifier.StopLoading(
+					notif, $"× Could not exit from {host}", false, GetFailureTimeout(),
+				)
 			endif
 		endif
 	else
@@ -1711,8 +1734,10 @@ export def ConduitDisconnectCmd(host: string)
 	if !empty(key)
 		const notif = notifier.StartLoading($"Disconnecting from {host}")
 		connections[key].Disconnect()
-		notifier.StopLoading(notif, $"✓ Disconnected from {host}", false)
-		timer_start(GetSuccessTimeout(), (_) => notifier.Dismiss(notif))
+		notifier.StopLoading(
+			notif, $"✓ Disconnected from {host}", false, GetSuccessTimeout(),
+		)
+		notifier.Dismiss(notif, GetSuccessTimeout())
 	else
         Warn($'No host "{host}"')
 	endif
