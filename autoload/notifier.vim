@@ -67,9 +67,14 @@ abstract class Notification
 		return this.kind
 	enddef
 
+	def Stop()
+	enddef
+
 	abstract def Message(): string
 	abstract def Formatted(): string
 	abstract def Frame(): string
+	abstract def FrameOff()
+	abstract def FrameOn()
 	abstract def Update(opts: dict<any>)
 endclass
 
@@ -79,6 +84,7 @@ class Progress extends Notification
 	static const width: number = pbar_width
 
 	var p: float
+	var show_frame: bool = true
 
 	def new(winid: number, msg: string)
 		this.winid = winid
@@ -92,13 +98,26 @@ class Progress extends Notification
 	enddef
 
 	def Formatted(): string
-		return this.Frame() .. '  ' .. this.Message()
+		const delim = empty(this.Frame()) ? "" : "  "
+		return this.Frame() .. delim .. this.Message()
 	enddef
 
 	def Frame(): string
+		if !this.show_frame
+			return ""
+		endif
+
 		const filled_len = float2nr(trunc(this.p * Progress.width))
 		const empty_len = Progress.width - filled_len
 		return repeat(pbar_filled, filled_len) .. repeat(pbar_empty, empty_len)
+	enddef
+
+	def FrameOff()
+		this.show_frame = false
+	enddef
+
+	def FrameOn()
+		this.show_frame = true
 	enddef
 
 	def Update(opts: dict<any>)
@@ -115,6 +134,7 @@ class Spinner extends Notification
 	static const frames = spinner_frames
 	const timer_id: number
 	var i: number
+	var show_frame: bool = true
 
 	def new(winid: number, msg: string)
 		this.winid = winid
@@ -133,11 +153,20 @@ class Spinner extends Notification
 	enddef
 
 	def Formatted(): string
-		return this.Frame() .. ' ' .. this.Message()
+		const delim = empty(this.Frame()) ? "" : " "
+		return this.Frame() .. delim .. this.Message()
 	enddef
 
 	def Frame(): string
-		return Spinner.frames[this.i]
+		return this.show_frame ? Spinner.frames[this.i] : ""
+	enddef
+
+	def FrameOff()
+		this.show_frame = false
+	enddef
+
+	def FrameOn()
+		this.show_frame = true
 	enddef
 
 	def Update(opts: dict<any>)
@@ -152,6 +181,8 @@ class Spinner extends Notification
 endclass
 
 class Basic extends Notification
+	var show_frame: bool = false
+
 	def new(winid: number, msg: string)
 		this.winid = winid
 		this.msg = msg
@@ -160,6 +191,12 @@ class Basic extends Notification
 
 	def Message(): string
 		return this.msg
+	enddef
+
+	def FrameOff()
+	enddef
+
+	def FrameOn()
 	enddef
 
 	def Frame(): string
