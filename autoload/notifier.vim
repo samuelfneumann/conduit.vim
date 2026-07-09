@@ -776,11 +776,11 @@ export def StartLoading(msg: string, opts: dict<any> = {}): number
     return winid
 enddef
 
-export def StopLoading(winid: number, final_msg: string = "")
+export def StopLoading(winid: number, final_msg: string = "", frame: bool=false)
     var id_str = string(winid)
 
     if final_msg != ""
-        Modify(winid, final_msg, {frame: false})
+        Modify(winid, final_msg, {frame: frame})
     else
         NotificationManager.Instance.DismissBy(winid)
     endif
