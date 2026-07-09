@@ -819,7 +819,7 @@ export def UpdateProgress(winid: number, current: number, total: number, msg: st
 		return
 	endif
 
-	final pbar = <Progress>NotificationManager.Instance.GetNotificaiton(winid)
+	final pbar = <Progress>NotificationManager.Instance.GetNotificationBy(winid)
 
     var percentage = 0.0
     if total > 0 | percentage = (current + 0.0) / (total + 0.0) | endif
@@ -827,6 +827,7 @@ export def UpdateProgress(winid: number, current: number, total: number, msg: st
     if percentage < 0.0 | percentage = 0.0 | endif
 
 	pbar.Update({percentage: percentage})
+	pbar.SetMessage(msg)
 
     if msg != ""
 		SetDisplayText(pbar.winid, pbar.Message(), true, true, pbar.Frame() .. "  ")
