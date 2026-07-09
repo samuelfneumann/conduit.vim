@@ -221,7 +221,7 @@ class NotificationManager
 	# History Tracking
 	var history: list<string> = []
 	var notif_texts: dict<string> = {} # winid (string) -> latest message text
-	var time_format = "%H:%M:%S"
+	const time_format = "%H:%M:%S"
 	var history_limit: number = 100
 
 	def new()
@@ -236,36 +236,39 @@ class NotificationManager
 		const id_str = string(winid)
         const time_str = strftime(this.time_format)
         add(this.history, printf("[%s] %s", time_str, this.notif_texts[id_str]))
-        this.notif_texts->remove(id_str)
 
         # Keep history to a maximum of `history_limit` entries to save memory
         if len(this.history) > this.history_limit
-            remove(history, 0)
+            remove(this.history, 0)
         endif
+	enddef
+
+	def GetHistory(): list<string>
+		return this.history->deepcopy()
 	enddef
 
 	def Register(notif: Notification)
 		const id_str = string(notif.winid)
 		if notif.Kind() == NotificationKind.Spinner
-			active_spinners[id_str] = <Spinner>notif
+			this.active_spinners[id_str] = <Spinner>notif
 		elseif notif.Kind() == NotificationKind.Progress
-			active_pbars[id_str] = <Progress>notif
+			this.active_pbars[id_str] = <Progress>notif
 		elseif notif.Kind() == NotificationKind.Basic
-			active_basic[id_str] = <Basic>notif
+			this.active_basic[id_str] = <Basic>notif
 		endif
 	enddef
 
 	def GetNotificationBy(winid: number): Notification
 		const id_str = string(winid)
-		if has_key(active_spinners, id_str)
+		if has_key(this.active_spinners, id_str)
 			return this.active_spinners[id_str]
-		elseif has_key(active_pbars, id_str)
+		elseif has_key(this.active_pbars, id_str)
 			return this.active_pbars[id_str]
-		elseif has_key(active_basic, id_str)
+		elseif has_key(this.active_basic, id_str)
 			return this.active_basic[id_str]
 		endif
 
-		throw errors.Error.InvalidNotificationId.Format(
+		throw error.Error.InvalidNotificationId.Format(
 			$"no notification with id {winid}"
 		)
 	enddef
@@ -306,18 +309,22 @@ class NotificationManager
 	def RemoveBy(winid: number)
 		const id_str = string(winid)
 
-		if has_key(active_spinners, id_str)
-			remove(active_spinners, id_str)
-		elseif has_key(active_pbars, id_str)
-			remove(active_pbars, id_str)
-		elseif has_key(active_basic, id_str)
-			remove(active_basic, id_str)
+		if has_key(this.active_spinners, id_str)
+			remove(this.active_spinners, id_str)
+		elseif has_key(this.active_pbars, id_str)
+			remove(this.active_pbars, id_str)
+		elseif has_key(this.active_basic, id_str)
+			remove(this.active_basic, id_str)
+		endif
+
+		if has_key(this.notif_texts, id_str)
+			this.notif_texts->remove(id_str)
 		endif
 	enddef
 
 	def DismissBy(winid: number)
 		const id_str = string(winid)
-		if this.IsActive(id_str)[0]
+		if this.IsActiveBy(winid)
 			popup_close(winid)
 			this.RemoveBy(winid)
 		endif
