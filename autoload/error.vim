@@ -18,7 +18,8 @@ export enum Error
 	CouldNotOpenTerm("C015"),
 	InvalidOpPathFormat("C016"),
 	MissingNotifierOptionKey("C017"),
-	Misc("C018")
+	InvalidNotificationId("C018"),
+	Misc("C019")
 
 	const code: string
 
