@@ -42,10 +42,18 @@ endif
 #    NotificationManager.
 # 4. The NotificationManager then holds all Notifications, and it manages their
 #    animations, stacking, carouselling, etc.
+# 5. NotificationManager should store the history
+
+enum NotificationKind
+	Spinner,
+	Progress,
+	Basic,
+endenum
 
 abstract class Notification
 	var winid: number
 	var msg: string
+	const kind: NotificationKind
 
 	def SetMessage(msg: string)
 		this.msg = msg
@@ -53,6 +61,10 @@ abstract class Notification
 
 	def SetWinID(winid: number)
 		this.winid = winid
+	enddef
+
+	def Kind(): NotificationKind
+		return this.kind
 	enddef
 
 	abstract def Message(): string
@@ -72,6 +84,7 @@ class Progress extends Notification
 		this.winid = winid
 		this.msg = msg
 		this.p = 0.0
+		this.kind = NotificationKind.Progress
 	enddef
 
 	def Message(): string
@@ -108,6 +121,7 @@ class Spinner extends Notification
 		this.msg = msg
 		this.i = 0
 		this.timer_id = this.Spin()
+		this.kind = NotificationKind.Spinner
 	enddef
 
 	def Spin(): number
@@ -141,6 +155,7 @@ class Basic extends Notification
 	def new(winid: number, msg: string)
 		this.winid = winid
 		this.msg = msg
+		this.kind = NotificationKind.Basic
 	enddef
 
 	def Message(): string
