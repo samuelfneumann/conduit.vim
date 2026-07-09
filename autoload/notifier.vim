@@ -33,17 +33,6 @@ else
 	spinner_frames = ['/', '-', '\', '|']
 endif
 
-# TODO:
-# 1. We should have a NotificationManger, right now, that is `active_spinners`
-#    and `active_pbars`
-# 2. Each Notification gets a reference to the NotificationManager
-# 3. Notifications get a Dismiss() method. This stops any animations in the
-#    notification and the Notification removes itself from the
-#    NotificationManager.
-# 4. The NotificationManager then holds all Notifications, and it manages their
-#    animations, stacking, carouselling, etc.
-# 5. NotificationManager should store the history
-
 enum NotificationKind
 	Spinner,
 	Progress,
@@ -344,19 +333,11 @@ class NotificationManager
 	enddef
 endclass
 
-# var manager = NotificationManager.Instance
-# var active_spinners: dict<Spinner> = {} 
-# var active_pbars: dict<Progress> = {} 
-
 # Carousel State Tracking
 var active_carousels: dict<number> = {}
 var carousel_msgs: dict<string> = {}
 var carousel_prefixes: dict<string> = {}
 var carousel_idxs: dict<number> = {}
-
-# History Tracking
-var history: list<string> = []
-var notif_texts: dict<string> = {} # winid (string) -> latest message text
 
 # ── Highlight Groups & Text Properties ───────────────────────────────────
 hi def link NotifyRightArrow Function
@@ -573,7 +554,9 @@ def SetDisplayText(
 	endif
 
 	if update_history
-		notif_texts[id_str] = fixed_prefix .. in_msg
+		const msg = fixed_prefix .. in_msg
+		NotificationManager.Instance.UpdateLatestMessage(winid, msg)
+		# notif_texts[id_str] = fixed_prefix .. in_msg
 	endif
 	if update_positions
 		UpdatePositions()
@@ -649,33 +632,15 @@ def UpdatePositions()
 enddef
 
 def OnPopupClose(winid: number, result: any)
-    var id_str = string(winid)
-
-    # 1. Save final text to history
-    if has_key(notif_texts, id_str)
-        var time_str = strftime("%H:%M:%S")
-        add(history, printf("[%s] %s", time_str, notif_texts[id_str]))
-        
-        # Keep history to a maximum of 100 entries to save memory
-        if len(history) > 100
-            remove(history, 0)
-        endif
-        remove(notif_texts, id_str)
-    endif
-
-    # 2. Clean up timer if this was a loading spinner
-    if has_key(active_spinners, id_str)
-        active_spinners[id_str].Stop()
-        remove(active_spinners, id_str)
-    endif
-
-	# 3. Clean up timer if this notification is carouseling
+	# Clean up timer if this notification is carouseling
 	StopCarousel(winid)
 
-    # 4. Remove from active list and restack
-    var idx = index(active_notifs, winid)
-    if idx >= 0
-        remove(active_notifs, idx)
+    # Remove from active list and restack
+	const is_active = NotificationManager.Instance.IsActiveBy(winid)
+    if is_active
+		NotificationManager.Instance.LogHistory(winid)
+		NotificationManager.Instance.GetNotificationBy(winid).Stop()
+		NotificationManager.Instance.RemoveBy(winid)
         UpdatePositions()
     endif
 enddef
@@ -689,7 +654,8 @@ def AnimateSpinner(spinner: Spinner, timer_id: number)
     
     # Do not update history for intermediate animation frames.
 	spinner.Update({})
-    SetDisplayText(spinner.winid, spinner.Message(), false, false, spinner.Frame() .. " ")
+	const delim = empty(spinner.Frame()) ? "" : " "
+    SetDisplayText(spinner.winid, spinner.Message(), false, false, spinner.Frame() .. delim)
 enddef
 
 def AnimateCarousel(winid: number, timer_id: number)
@@ -773,22 +739,29 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
     return winid
 enddef
 
-export def Modify(winid: number, in_msg: string)
+export def Modify(winid: number, in_msg: string, opts: dict<any>)
     if win_gettype(winid) == 'popup'
-		SetDisplayText(winid, in_msg)
+		final notif = NotificationManager.Instance.GetNotificationBy(winid)
+		notif.SetMessage(in_msg)
+		NotificationManager.Instance.UpdateLatestMessage(winid, in_msg)
+
+		if has_key(opts, 'frame') 
+			if opts.frame
+				notif.FrameOn()
+			else
+				notif.FrameOff()
+			endif
+		endif
+		# SetDisplayText(winid, in_msg)
     endif
 enddef
 
 export def Dismiss(winid: number)
-    if win_gettype(winid) == 'popup'
-        popup_close(winid)
-    endif
+	NotificationManager.Instance.DismissBy(winid)
 enddef
 
 export def DismissAll()
-	for notif in active_notifs
-		Dismiss(notif)
-	endfor
+	NotificationManager.Instance.DismissAll()
 enddef
 
 export def StartLoading(msg: string, opts: dict<any> = {}): number
@@ -798,24 +771,18 @@ export def StartLoading(msg: string, opts: dict<any> = {}): number
 
 	SetDisplayText(winid, spinner.Message(), true, false, spinner.Frame() .. " ")
     
-    var id_str = string(spinner.winid)
-    active_spinners[id_str] = spinner
+	NotificationManager.Instance.Register(spinner)
     
     return winid
 enddef
 
 export def StopLoading(winid: number, final_msg: string = "")
     var id_str = string(winid)
-    if has_key(active_spinners, id_str)
-		var spinner = active_spinners[id_str]
-		spinner.Stop()
-        remove(active_spinners, id_str)
-    endif
-    
+
     if final_msg != ""
-        Modify(winid, final_msg)
+        Modify(winid, final_msg, {frame: false})
     else
-        Dismiss(winid)
+        NotificationManager.Instance.DismissBy(winid)
     endif
 enddef
 
@@ -823,14 +790,15 @@ export def UpdateLoading(winid: number, new_msg: string)
     var id_str = string(winid)
     
     # Check if this popup is actually an active spinner
-    if has_key(active_spinners, id_str)
+	if NotificationManager.Instance.IsActiveSpinnerBy(winid)
         # Update the base message in our tracker
-		var spinner = active_spinners[id_str]
+		var spinner = <Spinner>NotificationManager.Instance.GetNotificationBy(winid)
 		spinner.SetMessage(new_msg)
         
         # Construct the full string and pass it to Modify() 
         # so that our syntax highlighting logic still applies!
-        SetDisplayText(spinner.winid, spinner.Message(), true, true, spinner.Frame() .. " ")
+		const delim = empty(spinner.Frame()) ? "" : " "
+        SetDisplayText(spinner.winid, spinner.Message(), true, true, spinner.Frame() .. delim)
     endif
 enddef
 
@@ -841,20 +809,17 @@ export def StartProgress(msg: string, opts: dict<any> = {}): number
     extend(progress_opts, opts)
     bar.SetWinID(Send(bar.Frame() .. "  " .. msg, progress_opts))
 
-	const id_str = string(bar.winid)
-	active_pbars[id_str] = bar
-
+	NotificationManager.Instance.Register(bar)
 	SetDisplayText(bar.winid, bar.Message(), true, false, bar.Frame() .. "  ")
 	return bar.winid
 enddef
 
 export def UpdateProgress(winid: number, current: number, total: number, msg: string = "")
-	const id_str = string(winid)
-	if !has_key(active_pbars, id_str)
+	if !NotificationManager.Instance.IsActiveProgressBy(winid)
 		return
 	endif
 
-	final pbar = active_pbars[id_str]
+	final pbar = <Progress>NotificationManager.Instance.GetNotificaiton(winid)
 
     var percentage = 0.0
     if total > 0 | percentage = (current + 0.0) / (total + 0.0) | endif
@@ -866,13 +831,13 @@ export def UpdateProgress(winid: number, current: number, total: number, msg: st
     if msg != ""
 		SetDisplayText(pbar.winid, pbar.Message(), true, true, pbar.Frame() .. "  ")
 	else
-		Modify(winid, pbar.Frame())
+		Modify(winid, pbar.Frame(), {})
 	endif
 enddef
 
 # Opens a scratch buffer displaying past notifications
 export def ShowHistory()
-    if empty(history)
+    if empty(NotificationManager.Instance.GetHistory())
         echo "No notifications in history."
         return
     endif
@@ -880,13 +845,13 @@ export def ShowHistory()
     # Open a 10-line split at the bottom
     execute('botright :10new')
     setlocal buftype=nofile bufhidden=wipe noswapfile
-    setline(1, history)
+    setline(1, NotificationManager.Instance.GetHistory())
 
 	for l in range(line("$"))
 		ApplyHighlight(win_getid(), l + 1)
 	endfor
     
-    # Optional: Highlight the timestamps
+    # Highlight the timestamps
     syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
     hi def link NotifyTime Comment
     
