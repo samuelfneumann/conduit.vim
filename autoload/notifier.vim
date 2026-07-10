@@ -743,9 +743,7 @@ def AnimateCarousel(winid: number, timer_id: number)
 	carousel_text_strategy.Animate(winid, timer_id)
 enddef
 
-# ── Public API ───────────────────────────────────────────────────────────
-
-export def Send(in_msg: string, opts: dict<any> = {}): number
+def CreatePopup(in_msg: string, opts: dict<any> = {}): number
     var p_line: number
     var p_col: number
     var p_pos: string
@@ -805,6 +803,14 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
     return winid
 enddef
 
+# ── Public API ───────────────────────────────────────────────────────────
+
+export def Send(in_msg: string, opts: dict<any> = {}): number
+	const winid = CreatePopup(in_msg, opts)
+	NotificationManager.Instance.Register(Basic.new(winid, in_msg))
+	return winid
+enddef
+
 export def Modify(winid: number, in_msg: string, opts: dict<any>)
     if win_gettype(winid) == 'popup'
 		final notif = NotificationManager.Instance.GetNotificationBy(winid)
@@ -818,7 +824,6 @@ export def Modify(winid: number, in_msg: string, opts: dict<any>)
 				notif.FrameOff()
 			endif
 		endif
-		# SetDisplayText(winid, in_msg)
     endif
 enddef
 
@@ -837,7 +842,7 @@ enddef
 
 export def StartLoading(msg: string, opts: dict<any> = {}): number
     var loading_opts = extendnew(opts, {persistent: true})
-    var winid = Send(msg, loading_opts)
+    var winid = CreatePopup(msg, loading_opts)
 	var spinner = Spinner.new(winid, msg)
 
 	SetDisplayText(winid, spinner.Message(), true, false, spinner.Frame() .. " ")
@@ -879,7 +884,7 @@ export def StartProgress(msg: string, opts: dict<any> = {}): number
     
     var progress_opts = {persistent: true}
     extend(progress_opts, opts)
-    bar.SetWinID(Send(bar.Frame() .. "  " .. msg, progress_opts))
+    bar.SetWinID(CreatePopup(bar.Frame() .. "  " .. msg, progress_opts))
 
 	NotificationManager.Instance.Register(bar)
 	SetDisplayText(bar.winid, bar.Message(), true, false, bar.Frame() .. "  ")
