@@ -37,6 +37,36 @@ enum NotificationKind
 	Basic,
 endenum
 
+class NotificationOptions
+	var prefix: string = ""
+	var subprefix: string = ""
+	var has_prefix: bool = false
+	var has_subprefix: bool = false
+	var popup_opts: dict<any> = {}
+
+	def new(opts: dict<any> = {})
+		this.popup_opts = copy(opts)
+		if has_key(this.popup_opts, 'prefix')
+			this.prefix = this.popup_opts.prefix
+			this.has_prefix = true
+			this.popup_opts->remove('prefix')
+		endif
+		if has_key(this.popup_opts, 'subprefix')
+			this.subprefix = this.popup_opts.subprefix
+			this.has_subprefix = true
+			this.popup_opts->remove('subprefix')
+		endif
+	enddef
+
+	def PopupOptions(): dict<any>
+		return copy(this.popup_opts)
+	enddef
+
+	def SetPersistent()
+		this.popup_opts.persistent = true
+	enddef
+endclass
+
 abstract class Notification
 	var winid: number
 	var msg: string
@@ -481,16 +511,6 @@ def GetCarouselInterval(): number
 	return max([50, interval])
 enddef
 
-def GetPrefixOpt(opts: dict<any>, key: string): string
-	if !has_key(opts, key)
-		return ""
-	endif
-	if type(opts[key]) == v:t_string
-		return opts[key]
-	endif
-	return string(opts[key])
-enddef
-
 def AddFrameHighlight(winid: number, bufnr: number, linenr: number, text: string)
 	if !NotificationManager.Instance.IsActiveBy(winid)
 		return
@@ -796,7 +816,7 @@ def AnimateCarousel(winid: number, timer_id: number)
 	carousel_text_strategy.Animate(winid, timer_id)
 enddef
 
-def CreatePopup(in_msg: string, opts: dict<any> = {}): number
+def CreatePopup(in_msg: string, opts: NotificationOptions): number
     var p_line: number
     var p_col: number
     var p_pos: string
@@ -836,9 +856,7 @@ def CreatePopup(in_msg: string, opts: dict<any> = {}): number
         callback: OnPopupClose
     }
     
-    extend(default_opts, opts)
-	if has_key(default_opts, 'prefix') | default_opts->remove('prefix') | endif
-	if has_key(default_opts, 'subprefix') | default_opts->remove('subprefix') | endif
+    extend(default_opts, opts.PopupOptions())
 
 	var msg = GetTextStrategy().Render(in_msg)
 
@@ -857,12 +875,13 @@ enddef
 # ── Public API ───────────────────────────────────────────────────────────
 
 export def Send(in_msg: string, opts: dict<any> = {}): number
-	const winid = CreatePopup(in_msg, opts)
+	const notif_opts = NotificationOptions.new(opts)
+	const winid = CreatePopup(in_msg, notif_opts)
 	const notif = Basic.new(
 		winid,
 		in_msg,
-		GetPrefixOpt(opts, 'prefix'),
-		GetPrefixOpt(opts, 'subprefix'),
+		notif_opts.prefix,
+		notif_opts.subprefix,
 	)
 	NotificationManager.Instance.Register(notif)
 	SetDisplayText(winid, notif.Message(), true, false, notif.FixedPrefix())
@@ -872,6 +891,7 @@ enddef
 
 export def Modify(winid: number, in_msg: string, opts: dict<any> = {})
     if win_gettype(winid) == 'popup'
+		const notif_opts = NotificationOptions.new(opts)
 		final notif = NotificationManager.Instance.GetNotificationBy(winid)
 		notif.SetMessage(in_msg)
 
@@ -882,11 +902,11 @@ export def Modify(winid: number, in_msg: string, opts: dict<any> = {})
 				notif.FrameOff()
 			endif
 		endif
-		if has_key(opts, 'prefix')
-			notif.SetPrefix(GetPrefixOpt(opts, 'prefix'))
+		if notif_opts.has_prefix
+			notif.SetPrefix(notif_opts.prefix)
 		endif
-		if has_key(opts, 'subprefix')
-			notif.SetSubPrefix(GetPrefixOpt(opts, 'subprefix'))
+		if notif_opts.has_subprefix
+			notif.SetSubPrefix(notif_opts.subprefix)
 		endif
 
 		SetDisplayText(winid, notif.Message(), true, true, notif.FixedPrefix())
@@ -907,13 +927,14 @@ export def DismissAll()
 enddef
 
 export def StartLoading(msg: string, opts: dict<any> = {}): number
-    var loading_opts = extendnew(opts, {persistent: true})
-    var winid = CreatePopup(msg, loading_opts)
+	var notif_opts = NotificationOptions.new(opts)
+	notif_opts.SetPersistent()
+    var winid = CreatePopup(msg, notif_opts)
 	var spinner = Spinner.new(
 		winid,
 		msg,
-		GetPrefixOpt(opts, 'prefix'),
-		GetPrefixOpt(opts, 'subprefix'),
+		notif_opts.prefix,
+		notif_opts.subprefix,
 	)
     
 	NotificationManager.Instance.Register(spinner)
@@ -947,16 +968,16 @@ export def UpdateLoading(winid: number, new_msg: string)
 enddef
 
 export def StartProgress(msg: string, opts: dict<any> = {}): number
+	var notif_opts = NotificationOptions.new(opts)
 	var bar = Progress.new(
 		-1,
 		msg,
-		GetPrefixOpt(opts, 'prefix'),
-		GetPrefixOpt(opts, 'subprefix'),
+		notif_opts.prefix,
+		notif_opts.subprefix,
 	)
     
-    var progress_opts: dict<any> = {persistent: true}
-    extend(progress_opts, opts)
-    bar.SetWinID(CreatePopup(bar.Formatted(), progress_opts))
+	notif_opts.SetPersistent()
+    bar.SetWinID(CreatePopup(bar.Formatted(), notif_opts))
 
 	NotificationManager.Instance.Register(bar)
 	SetDisplayText(bar.winid, bar.Message(), true, false, bar.FixedPrefix())
@@ -984,11 +1005,12 @@ export def UpdateProgress(
 
 	pbar.Update({percentage: percentage})
 	if msg != "" | pbar.SetMessage(msg) | endif
-	if has_key(opts, 'prefix')
-		pbar.SetPrefix(GetPrefixOpt(opts, 'prefix'))
+	const notif_opts = NotificationOptions.new(opts)
+	if notif_opts.has_prefix
+		pbar.SetPrefix(notif_opts.prefix)
 	endif
-	if has_key(opts, 'subprefix')
-		pbar.SetSubPrefix(GetPrefixOpt(opts, 'subprefix'))
+	if notif_opts.has_subprefix
+		pbar.SetSubPrefix(notif_opts.subprefix)
 	endif
 	SetDisplayText(pbar.winid, pbar.Message(), true, true, pbar.FixedPrefix())
 enddef
