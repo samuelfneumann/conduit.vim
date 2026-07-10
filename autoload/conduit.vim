@@ -818,7 +818,10 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 	if g:conduit_verbose && !empty(scp_cmd) | echom $"Conduit(sh/{op}):" scp_cmd->join(' ') | endif
 
 	const display_op = $'[{op}]'
-	const notif = notifier.StartProgress($'{display_op} [0.00 KB/s] {notif_suffix}')
+	const notif = notifier.StartProgress(
+		notif_suffix,
+		{prefix: display_op, subprefix: '[0.00 KB/s]'},
+	)
 
 	# Throttle time for updating progress bar
 	const throttle = 1.250 # seconds
@@ -827,7 +830,6 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 	var scp_op: Op
 	var scp_ops = get ? g:conduit_get_ops : g:conduit_put_ops
 
-	var pbar_msg: string
 	const j = job_start(
 		scp_cmd, {
 		out_io: "pipe",
@@ -851,12 +853,12 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 
 			# Update progress bar
 			if percent > 0 && !empty(speed)
-				pbar_msg = $'{display_op} [{speed}] {notif_suffix}'
 				notifier.UpdateProgress(
 					notif,
 					percent,
 					100, 
-					pbar_msg,
+					notif_suffix,
+					{subprefix: $'[{speed}]'},
 				)
 			endif
 		},
@@ -864,10 +866,20 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 			if code == 0
 				# Briefly show the full, final progress bar and success
 				# message, then dismiss
-				notifier.UpdateProgress(notif, 100, 100, $"✓ {display_op} [success] {notif_suffix}")
+				notifier.UpdateProgress(
+					notif,
+					100,
+					100,
+					$"✓ {notif_suffix}",
+					{subprefix: '[success]'},
+				)
 				notifier.Dismiss(notif, GetSuccessTimeout())
 			else
-				notifier.Modify(notif, $"× {display_op} [failed (error: {code})] {notif_suffix}")
+				notifier.Modify(
+					notif,
+					$"× {notif_suffix}",
+					{subprefix: $'[failed (error: {code})]'},
+				)
 				notifier.Dismiss(notif, GetFailureTimeout())
 			endif
 
