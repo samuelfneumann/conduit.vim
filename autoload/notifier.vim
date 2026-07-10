@@ -415,6 +415,7 @@ hi def link NotifyPrefix Identifier
 hi def link NotifySubPrefix Type
 hi def link NotifyProgressBar Function
 hi def link NotifySpinner PreCondit
+hi def link NotifyMessage Normal
 
 def InitProp(name: string, hl_group: string)
     if empty(prop_type_get(name))
@@ -435,6 +436,7 @@ InitProp("notify_prefix", "NotifyPrefix")
 InitProp("notify_subprefix", "NotifySubPrefix")
 InitProp("notify_progress_bar", "NotifyProgressBar")
 InitProp("notify_spinner", "NotifySpinner")
+InitProp("notify_message", "NotifyMessage")
 
 # ── Internal Helpers ─────────────────────────────────────────────────────
 def AddHighlight(bufnr: number, linenr: number, start_byte: number, end_byte: number, prop_type: string)
@@ -508,6 +510,16 @@ def AddFrameHighlight(winid: number, bufnr: number, linenr: number, text: string
 	endif
 
 	AddHighlightChars(bufnr, linenr, text, 0, min([frame_len, strcharlen(text)]), prop_type)
+enddef
+
+def AddMessageHighlight(winid: number, bufnr: number, linenr: number, text: string)
+	if !NotificationManager.Instance.IsActiveBy(winid)
+		return
+	endif
+
+	const notif = NotificationManager.Instance.GetNotificationBy(winid)
+	const start_char = strcharlen(notif.FixedPrefix())
+	AddHighlightChars(bufnr, linenr, text, start_char, strcharlen(text), "notify_message")
 enddef
 
 def AddPrefixHighlights(winid: number, bufnr: number, linenr: number, text: string)
@@ -723,6 +735,7 @@ def ApplyHighlight(winid: number, linenr: number=1)
     # Clear any existing highlights on the first line
     prop_clear(linenr, 1, {bufnr: bufnr})
 
+	AddMessageHighlight(winid, bufnr, linenr, text)
 	AddFrameHighlight(winid, bufnr, linenr, text)
 	AddPrefixHighlights(winid, bufnr, linenr, text)
 

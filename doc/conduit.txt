@@ -286,6 +286,9 @@ NotifyProgressBar                                   *NotifyProgressBar*
 NotifySpinner                                           *NotifySpinner*
         Highlight group used for notification spinners.
 
+NotifyMessage                                           *NotifyMessage*
+        Highlight group used for notification message text.
+
 g:notifier_carousel_interval                 *g:notifier_carousel_interval*
         Delay in milliseconds between carousel frames.
         Default: 100
