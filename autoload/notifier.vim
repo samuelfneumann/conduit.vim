@@ -23,8 +23,6 @@ var border_chars: list<string> = get(
 
 export var position: string = "top-right"
 
-var active_notifs: list<number> = []
-
 # Spinner State Tracking
 var spinner_frames: list<string>
 if has('multi_byte')
@@ -206,6 +204,7 @@ class NotificationManager
 	var active_spinners: dict<Spinner>
 	var active_pbars: dict<Progress>
 	var active_basic: dict<Basic>
+	var active_notifs: list<number> = []
 
 	# History Tracking
 	var history: list<string> = []
@@ -238,6 +237,10 @@ class NotificationManager
 
 	def Register(notif: Notification)
 		const id_str = string(notif.winid)
+		if index(this.active_notifs, notif.winid) == -1
+			add(this.active_notifs, notif.winid)
+		endif
+
 		if notif.Kind() == NotificationKind.Spinner
 			this.active_spinners[id_str] = <Spinner>notif
 		elseif notif.Kind() == NotificationKind.Progress
@@ -290,13 +293,15 @@ class NotificationManager
 	enddef
 
 	def GetActive(): list<number>
-		return keys(this.active_spinners)
-			->extend(keys(this.active_pbars))
-			->extend(keys(this.active_basic))
+		return this.active_notifs->deepcopy()
 	enddef
 
 	def RemoveBy(winid: number)
 		const id_str = string(winid)
+		const idx = index(this.active_notifs, winid)
+		if idx > -1
+			remove(this.active_notifs, idx)
+		endif
 
 		if has_key(this.active_spinners, id_str)
 			remove(this.active_spinners, id_str)
@@ -335,6 +340,30 @@ class NotificationManager
 		endfor
 		for notif in values(this.active_basic)
 			this.Dismiss(notif)
+		endfor
+	enddef
+
+	def UpdatePositions()
+		var current_line = 0
+		var is_bottom = position =~# '^bottom'
+
+		if is_bottom
+			current_line = &lines - &cmdheight - 1
+		else
+			current_line = &showtabline > 0 ? 2 : 1
+		endif
+
+		for winid in this.active_notifs
+			var pos_info = popup_getpos(winid)
+			if empty(pos_info) | continue | endif
+
+			popup_setoptions(winid, {line: current_line})
+
+			if is_bottom
+				current_line -= pos_info.height
+			else
+				current_line += pos_info.height
+			endif
 		endfor
 	enddef
 endclass
@@ -576,7 +605,7 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 	def Animate(winid: number, timer_id: number)
 		const id_str = string(winid)
-		if index(active_notifs, winid) == -1 || !has_key(this.msgs, id_str)
+		if !NotificationManager.Instance.IsActiveBy(winid) || !has_key(this.msgs, id_str)
 			timer_stop(timer_id)
 			return
 		endif
@@ -641,7 +670,7 @@ def SetDisplayText(
 		NotificationManager.Instance.UpdateLatestMessage(winid, msg)
 	endif
 	if update_positions
-		UpdatePositions()
+		NotificationManager.Instance.UpdatePositions()
 	endif
 enddef
 
@@ -689,30 +718,6 @@ def ApplyHighlight(winid: number, linenr: number=1)
 	AddHighlight(bufnr, linenr, start_byte, end_byte, prop_type)
 enddef
 
-def UpdatePositions()
-    var current_line = 0
-    var is_bottom = position =~# '^bottom'
-    
-    if is_bottom
-        current_line = &lines - &cmdheight - 1
-    else
-        current_line = &showtabline > 0 ? 2 : 1
-    endif
-
-    for winid in active_notifs
-        var pos_info = popup_getpos(winid)
-        if empty(pos_info) | continue | endif
-        
-        popup_setoptions(winid, {line: current_line})
-        
-        if is_bottom
-            current_line -= pos_info.height
-        else
-            current_line += pos_info.height
-        endif
-    endfor
-enddef
-
 def OnPopupClose(winid: number, result: any)
 	# Clean up timer if this notification is carouseling
 	StopTextRendering(winid)
@@ -723,12 +728,12 @@ def OnPopupClose(winid: number, result: any)
 		NotificationManager.Instance.LogHistory(winid)
 		NotificationManager.Instance.GetNotificationBy(winid).Stop()
 		NotificationManager.Instance.RemoveBy(winid)
-        UpdatePositions()
+		NotificationManager.Instance.UpdatePositions()
     endif
 enddef
 
 def AnimateSpinner(spinner: Spinner, timer_id: number)
-    if index(active_notifs, spinner.winid) == -1
+    if !NotificationManager.Instance.IsActiveBy(spinner.winid)
         timer_stop(spinner.timer_id)
         return
     endif
@@ -796,9 +801,7 @@ def CreatePopup(in_msg: string, opts: dict<any> = {}): number
         winid = popup_notification(msg, default_opts)
     endif
 
-    add(active_notifs, winid)
 	SetDisplayText(winid, in_msg, true, false)
-    UpdatePositions()
     
     return winid
 enddef
@@ -808,6 +811,7 @@ enddef
 export def Send(in_msg: string, opts: dict<any> = {}): number
 	const winid = CreatePopup(in_msg, opts)
 	NotificationManager.Instance.Register(Basic.new(winid, in_msg))
+	NotificationManager.Instance.UpdatePositions()
 	return winid
 enddef
 
@@ -848,6 +852,7 @@ export def StartLoading(msg: string, opts: dict<any> = {}): number
 	SetDisplayText(winid, spinner.Message(), true, false, spinner.Frame() .. " ")
     
 	NotificationManager.Instance.Register(spinner)
+	NotificationManager.Instance.UpdatePositions()
     
     return winid
 enddef
@@ -888,6 +893,7 @@ export def StartProgress(msg: string, opts: dict<any> = {}): number
 
 	NotificationManager.Instance.Register(bar)
 	SetDisplayText(bar.winid, bar.Message(), true, false, bar.Frame() .. "  ")
+	NotificationManager.Instance.UpdatePositions()
 	return bar.winid
 enddef
 
