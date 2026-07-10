@@ -734,7 +734,7 @@ enddef
 
 def AnimateSpinner(spinner: Spinner, timer_id: number)
     if !NotificationManager.Instance.IsActiveBy(spinner.winid)
-        timer_stop(spinner.timer_id)
+		spinner.Stop()
         return
     endif
     
