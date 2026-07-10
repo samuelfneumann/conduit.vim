@@ -320,16 +320,22 @@ class NotificationManager
 	enddef
 
 	def Dismiss(notif: Notification)
-		if this.IsActive(notif)[0]
+		if this.IsActive(notif)
 			popup_close(notif.winid)
 			this.RemoveBy(notif.winid)
 		endif
 	enddef
 
-	def DismissAll(notif: Notification)
-		for notif in values(this.active_spinners) | this.Dismiss(notif) | endif
-		for notif in values(this.active_pbars) | this.Dismiss(notif) | endif
-		for notif in values(this.active_basic) | this.Dismiss(notif) | endif
+	def DismissAll()
+		for notif in values(this.active_spinners)
+			this.Dismiss(notif)
+		endfor
+		for notif in values(this.active_pbars)
+			this.Dismiss(notif)
+		endfor
+		for notif in values(this.active_basic)
+			this.Dismiss(notif)
+		endfor
 	enddef
 endclass
 
