@@ -1608,9 +1608,11 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					# User a timer for the success message since the ssh
 					# connection is already authenticated, and the previous
 					# message will only be shown briefly otherwise
-					notifier.StopLoading(
-						notif, $"✓ Success", false, GetSuccessTimeout(),
-					)
+					timer_start(500, (_) => { 
+						notifier.StopLoading(
+							notif, $"✓ Success", false, GetSuccessTimeout(),
+						)
+					})
 					redraw
 				},
 				() => {
