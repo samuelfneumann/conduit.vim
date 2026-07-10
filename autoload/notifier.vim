@@ -333,12 +333,6 @@ class NotificationManager
 	enddef
 endclass
 
-# Carousel State Tracking
-var active_carousels: dict<number> = {}
-var carousel_msgs: dict<string> = {}
-var carousel_prefixes: dict<string> = {}
-var carousel_idxs: dict<number> = {}
-
 # ── Highlight Groups & Text Properties ───────────────────────────────────
 hi def link NotifyRightArrow Function
 hi def link NotifySuccess String
@@ -407,115 +401,211 @@ def GetCarouselInterval(): number
 	return max([50, interval])
 enddef
 
-def CanCarousel(msg: string, fixed_prefix: string = ''): bool
-	return GetOverflowMode() ==# 'carousel'
-		&& strcharlen(fixed_prefix .. msg) > GetMaxWidth()
-enddef
+abstract class NotificationTextStrategy
+	def Wrap(): bool
+		return false
+	enddef
 
-def CarouselCycleLen(msg: string): number
-	return strcharlen(msg) + 3
-enddef
+	def CanAnimate(msg: string, fixed_prefix: string = ''): bool
+		return false
+	enddef
 
-def CarouselFrame(msg: string, idx: number, fixed_prefix: string = ''): string
-	const width = GetMaxWidth()
-	const body_width = width - strcharlen(fixed_prefix)
-	if width <= 0 || strcharlen(fixed_prefix .. msg) <= width
+	def Start(winid: number, msg: string, fixed_prefix: string = '')
+	enddef
+
+	def Stop(winid: number)
+	enddef
+
+	def AddOpHighlight(winid: number, bufnr: number, linenr: number, text: string): bool
+		return false
+	enddef
+
+	abstract def Render(msg: string, fixed_prefix: string = ''): string
+endclass
+
+class WrapNotificationTextStrategy extends NotificationTextStrategy
+	def Wrap(): bool
+		return true
+	enddef
+
+	def Render(msg: string, fixed_prefix: string = ''): string
 		return fixed_prefix .. msg
-	elseif body_width <= 0
-		return strcharpart(fixed_prefix, 0, width)
-	endif
+	enddef
+endclass
 
-	const gap = '   '
-	const cycle_len = CarouselCycleLen(msg)
-	const start = idx % cycle_len
-	const tape = msg .. gap .. msg
-	var frame = strcharpart(tape, start, body_width)
-	const missing = body_width - strcharlen(frame)
-	if missing > 0
-		frame ..= strcharpart(tape, 0, missing)
-	endif
-	return fixed_prefix .. frame
-enddef
+class TruncateNotificationTextStrategy extends NotificationTextStrategy
+	def Render(msg: string, fixed_prefix: string = ''): string
+		const text = fixed_prefix .. msg
+		if strcharlen(text) <= GetMaxWidth()
+			return text
+		endif
 
-def FormatMsg(msg: string, include_ellipsis: bool): string
-	if GetOverflowMode() ==# 'wrap'
-		return msg
-	elseif strcharlen(msg) > GetMaxWidth() # truncate
 		const width = GetMaxWidth()
-		if include_ellipsis && has('multi_byte')
-			return strcharpart(msg, 0, width - 1) .. "…"
-		elseif include_ellipsis && width > 3
-			return strcharpart(msg, 0, width - 3) .. "..."
-		else
-			return strcharpart(msg, 0, width)
+		if has('multi_byte')
+			return strcharpart(text, 0, width - 1) .. "…"
+		elseif width > 3
+			return strcharpart(text, 0, width - 3) .. "..."
 		endif
-	endif
+		return strcharpart(text, 0, width)
+	enddef
+endclass
 
-	return msg
-enddef
+class CarouselNotificationTextStrategy extends NotificationTextStrategy
+	var active: dict<number> = {}
+	var msgs: dict<string> = {}
+	var prefixes: dict<string> = {}
+	var idxs: dict<number> = {}
 
-def StopCarousel(winid: number)
-	const id_str = string(winid)
-	if has_key(active_carousels, id_str)
-		timer_stop(active_carousels[id_str])
-		remove(active_carousels, id_str)
-	endif
-	if has_key(carousel_msgs, id_str) | remove(carousel_msgs, id_str) | endif
-	if has_key(carousel_prefixes, id_str) | remove(carousel_prefixes, id_str) | endif
-	if has_key(carousel_idxs, id_str) | remove(carousel_idxs, id_str) | endif
-enddef
+	def CanAnimate(msg: string, fixed_prefix: string = ''): bool
+		return strcharlen(fixed_prefix .. msg) > GetMaxWidth()
+	enddef
 
-def AddCarouselOpHighlight(winid: number, bufnr: number, linenr: number, text: string): bool
-	const id_str = string(winid)
-	if !has_key(carousel_msgs, id_str)
-		return false
-	endif
+	def CycleLen(msg: string): number
+		return strcharlen(msg) + 3
+	enddef
 
-	const msg = carousel_msgs[id_str]
-	const prefix = get(carousel_prefixes, id_str, '')
-	const body_width = GetMaxWidth() - strcharlen(prefix)
-	if body_width <= 0
-		return false
-	endif
-
-	const msg_len = strcharlen(msg)
-	const gap_len = 3
-	const cycle_len = msg_len + gap_len
-	const frame_start = carousel_idxs[id_str] % cycle_len
-	const frame_end = frame_start + body_width
-	var found = false
-
-	var search_start = 0
-	while search_start >= 0
-		const op_match = matchstrpos(msg, '\[\(get\|put\|mget\|mput\)\]', search_start)
-		if op_match[1] == -1
-			break
+	def Frame(msg: string, idx: number, fixed_prefix: string = ''): string
+		const width = GetMaxWidth()
+		const body_width = width - strcharlen(fixed_prefix)
+		if width <= 0 || strcharlen(fixed_prefix .. msg) <= width
+			return fixed_prefix .. msg
+		elseif body_width <= 0
+			return strcharpart(fixed_prefix, 0, width)
 		endif
 
-		const op_start = strcharlen(strpart(msg, 0, op_match[1]))
-		const op_end = strcharlen(strpart(msg, 0, op_match[2]))
-		for offset in [0, cycle_len]
-			const shifted_start = op_start + offset
-			const shifted_end = op_end + offset
-			const visible_start = max([shifted_start, frame_start])
-			const visible_end = min([shifted_end, frame_end])
-			if visible_start < visible_end
-				AddHighlightChars(
-					bufnr,
-					linenr,
-					text,
-					strcharlen(prefix) + visible_start - frame_start,
-					strcharlen(prefix) + visible_end - frame_start,
-					"notify_op"
-				)
-				found = true
+		const gap = '   '
+		const cycle_len = this.CycleLen(msg)
+		const start = idx % cycle_len
+		const tape = msg .. gap .. msg
+		var frame = strcharpart(tape, start, body_width)
+		const missing = body_width - strcharlen(frame)
+		if missing > 0
+			frame ..= strcharpart(tape, 0, missing)
+		endif
+		return fixed_prefix .. frame
+	enddef
+
+	def Render(msg: string, fixed_prefix: string = ''): string
+		return this.Frame(msg, 0, fixed_prefix)
+	enddef
+
+	def Start(winid: number, msg: string, fixed_prefix: string = '')
+		const id_str = string(winid)
+		this.msgs[id_str] = msg
+		this.prefixes[id_str] = fixed_prefix
+		if !has_key(this.idxs, id_str) | this.idxs[id_str] = 0 | endif
+
+		if !has_key(this.active, id_str)
+			this.active[id_str] = timer_start(
+				GetCarouselInterval(),
+				(t) => AnimateCarousel(winid, t),
+				{repeat: -1}
+			)
+		endif
+	enddef
+
+	def Stop(winid: number)
+		const id_str = string(winid)
+		if has_key(this.active, id_str)
+			timer_stop(this.active[id_str])
+			remove(this.active, id_str)
+		endif
+		if has_key(this.msgs, id_str) | remove(this.msgs, id_str) | endif
+		if has_key(this.prefixes, id_str) | remove(this.prefixes, id_str) | endif
+		if has_key(this.idxs, id_str) | remove(this.idxs, id_str) | endif
+	enddef
+
+	def AddOpHighlight(winid: number, bufnr: number, linenr: number, text: string): bool
+		const id_str = string(winid)
+		if !has_key(this.msgs, id_str)
+			return false
+		endif
+
+		const msg = this.msgs[id_str]
+		const prefix = get(this.prefixes, id_str, '')
+		const body_width = GetMaxWidth() - strcharlen(prefix)
+		if body_width <= 0
+			return false
+		endif
+
+		const msg_len = strcharlen(msg)
+		const gap_len = 3
+		const cycle_len = msg_len + gap_len
+		const frame_start = this.idxs[id_str] % cycle_len
+		const frame_end = frame_start + body_width
+		var found = false
+
+		var search_start = 0
+		while search_start >= 0
+			const op_match = matchstrpos(msg, '\[\(get\|put\|mget\|mput\)\]', search_start)
+			if op_match[1] == -1
+				break
 			endif
-		endfor
 
-		search_start = op_match[2]
-	endwhile
+			const op_start = strcharlen(strpart(msg, 0, op_match[1]))
+			const op_end = strcharlen(strpart(msg, 0, op_match[2]))
+			for offset in [0, cycle_len]
+				const shifted_start = op_start + offset
+				const shifted_end = op_end + offset
+				const visible_start = max([shifted_start, frame_start])
+				const visible_end = min([shifted_end, frame_end])
+				if visible_start < visible_end
+					AddHighlightChars(
+						bufnr,
+						linenr,
+						text,
+						strcharlen(prefix) + visible_start - frame_start,
+						strcharlen(prefix) + visible_end - frame_start,
+						"notify_op"
+					)
+					found = true
+				endif
+			endfor
 
-	return found
+			search_start = op_match[2]
+		endwhile
+
+		return found
+	enddef
+
+	def Animate(winid: number, timer_id: number)
+		const id_str = string(winid)
+		if index(active_notifs, winid) == -1 || !has_key(this.msgs, id_str)
+			timer_stop(timer_id)
+			return
+		endif
+
+		this.idxs[id_str] = (this.idxs[id_str] + 1) % this.CycleLen(this.msgs[id_str])
+		popup_settext(
+			winid,
+			this.Frame(
+				this.msgs[id_str],
+				this.idxs[id_str],
+				get(this.prefixes, id_str, '')
+			)
+		)
+		ApplyHighlight(winid)
+	enddef
+endclass
+
+const wrap_text_strategy = WrapNotificationTextStrategy.new()
+const truncate_text_strategy = TruncateNotificationTextStrategy.new()
+const carousel_text_strategy = CarouselNotificationTextStrategy.new()
+
+def GetTextStrategy(): NotificationTextStrategy
+	const overflow = GetOverflowMode()
+	if overflow ==# 'wrap'
+		return wrap_text_strategy
+	elseif overflow ==# 'carousel'
+		return carousel_text_strategy
+	endif
+	return truncate_text_strategy
+enddef
+
+def StopTextRendering(winid: number)
+	wrap_text_strategy.Stop(winid)
+	truncate_text_strategy.Stop(winid)
+	carousel_text_strategy.Stop(winid)
 enddef
 
 def SetDisplayText(
@@ -529,34 +619,20 @@ def SetDisplayText(
 		return
 	endif
 
-	const id_str = string(winid)
-	if CanCarousel(in_msg, fixed_prefix)
-		carousel_msgs[id_str] = in_msg
-		carousel_prefixes[id_str] = fixed_prefix
-		if !has_key(carousel_idxs, id_str) | carousel_idxs[id_str] = 0 | endif
-		popup_settext(
-			winid,
-			CarouselFrame(in_msg, carousel_idxs[id_str], fixed_prefix)
-		)
+	const strategy = GetTextStrategy()
+	if strategy.CanAnimate(in_msg, fixed_prefix)
+		strategy.Start(winid, in_msg, fixed_prefix)
+		popup_settext(winid, strategy.Render(in_msg, fixed_prefix))
 		ApplyHighlight(winid)
-
-		if !has_key(active_carousels, id_str)
-			active_carousels[id_str] = timer_start(
-				GetCarouselInterval(),
-				(t) => AnimateCarousel(winid, t),
-				{repeat: -1}
-			)
-		endif
 	else
-		StopCarousel(winid)
-		popup_settext(winid, FormatMsg(fixed_prefix .. in_msg, true))
+		StopTextRendering(winid)
+		popup_settext(winid, strategy.Render(in_msg, fixed_prefix))
 		ApplyHighlight(winid)
 	endif
 
 	if update_history
 		const msg = fixed_prefix .. in_msg
 		NotificationManager.Instance.UpdateLatestMessage(winid, msg)
-		# notif_texts[id_str] = fixed_prefix .. in_msg
 	endif
 	if update_positions
 		UpdatePositions()
@@ -574,7 +650,7 @@ def ApplyHighlight(winid: number, linenr: number=1)
     # Clear any existing highlights on the first line
     prop_clear(linenr, 1, {bufnr: bufnr})
 
-    if !AddCarouselOpHighlight(winid, bufnr, linenr, text)
+    if !carousel_text_strategy.AddOpHighlight(winid, bufnr, linenr, text)
 		var op_match = matchstrpos(text, '\[\(get\|put\|mget\|mput\)\]')
 		AddHighlight(bufnr, linenr, op_match[1], op_match[2], "notify_op")
 	endif
@@ -633,7 +709,7 @@ enddef
 
 def OnPopupClose(winid: number, result: any)
 	# Clean up timer if this notification is carouseling
-	StopCarousel(winid)
+	StopTextRendering(winid)
 
     # Remove from active list and restack
 	const is_active = NotificationManager.Instance.IsActiveBy(winid)
@@ -646,7 +722,6 @@ def OnPopupClose(winid: number, result: any)
 enddef
 
 def AnimateSpinner(spinner: Spinner, timer_id: number)
-    var id_str = string(spinner.winid)
     if index(active_notifs, spinner.winid) == -1
         timer_stop(spinner.timer_id)
         return
@@ -659,22 +734,7 @@ def AnimateSpinner(spinner: Spinner, timer_id: number)
 enddef
 
 def AnimateCarousel(winid: number, timer_id: number)
-    var id_str = string(winid)
-    if index(active_notifs, winid) == -1 || !has_key(carousel_msgs, id_str)
-        timer_stop(timer_id)
-        return
-    endif
-
-    carousel_idxs[id_str] = (carousel_idxs[id_str] + 1) % CarouselCycleLen(carousel_msgs[id_str])
-    popup_settext(
-		winid,
-		CarouselFrame(
-			carousel_msgs[id_str],
-			carousel_idxs[id_str],
-			get(carousel_prefixes, id_str, '')
-		)
-	)
-    ApplyHighlight(winid)
+	carousel_text_strategy.Animate(winid, timer_id)
 enddef
 
 # ── Public API ───────────────────────────────────────────────────────────
@@ -706,7 +766,7 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
         line: p_line,
         col: p_col,
         pos: p_pos,
-		wrap: GetOverflowMode() ==# 'wrap',
+		wrap: GetTextStrategy().Wrap(),
 		maxwidth: GetMaxWidth(),
         highlight: 'Normal',
         padding: [0, 1, 0, 1],
@@ -721,7 +781,7 @@ export def Send(in_msg: string, opts: dict<any> = {}): number
     
     extend(default_opts, opts)
 
-	var msg = CanCarousel(in_msg) ? CarouselFrame(in_msg, 0) : FormatMsg(in_msg, true)
+	var msg = GetTextStrategy().Render(in_msg)
 
     var winid: number
     if default_opts.persistent
@@ -787,8 +847,6 @@ export def StopLoading(
 	frame: bool=false,
 	after: number = 0,
 ): number
-    var id_str = string(winid)
-
     if final_msg != ""
         timer_start(0, (_) => Modify(winid, final_msg, {frame: frame}))
 	endif
@@ -797,8 +855,6 @@ export def StopLoading(
 enddef
 
 export def UpdateLoading(winid: number, new_msg: string)
-    var id_str = string(winid)
-    
     # Check if this popup is actually an active spinner
 	if NotificationManager.Instance.IsActiveSpinnerBy(winid)
         # Update the base message in our tracker
