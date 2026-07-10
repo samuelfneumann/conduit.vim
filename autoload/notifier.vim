@@ -912,7 +912,7 @@ export def StartProgress(msg: string, opts: dict<any> = {}): number
 		GetPrefixOpt(opts, 'subprefix'),
 	)
     
-    var progress_opts = {persistent: true}
+    var progress_opts: dict<any> = {persistent: true}
     extend(progress_opts, opts)
     bar.SetWinID(CreatePopup(bar.Formatted(), progress_opts))
 
