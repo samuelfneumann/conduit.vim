@@ -413,6 +413,8 @@ hi def link NotifyWarning WarningMsg
 hi def link NotifyInfo Question
 hi def link NotifyPrefix Identifier
 hi def link NotifySubPrefix Type
+hi def link NotifyProgressBar Function
+hi def link NotifySpinner PreCondit
 
 def InitProp(name: string, hl_group: string)
     if empty(prop_type_get(name))
@@ -431,6 +433,8 @@ InitProp("notify_warning", "NotifyWarning")
 InitProp("notify_info", "NotifyInfo")
 InitProp("notify_prefix", "NotifyPrefix")
 InitProp("notify_subprefix", "NotifySubPrefix")
+InitProp("notify_progress_bar", "NotifyProgressBar")
+InitProp("notify_spinner", "NotifySpinner")
 
 # ── Internal Helpers ─────────────────────────────────────────────────────
 def AddHighlight(bufnr: number, linenr: number, start_byte: number, end_byte: number, prop_type: string)
@@ -483,6 +487,27 @@ def GetPrefixOpt(opts: dict<any>, key: string): string
 		return opts[key]
 	endif
 	return string(opts[key])
+enddef
+
+def AddFrameHighlight(winid: number, bufnr: number, linenr: number, text: string)
+	if !NotificationManager.Instance.IsActiveBy(winid)
+		return
+	endif
+
+	const notif = NotificationManager.Instance.GetNotificationBy(winid)
+	const frame_len = strcharlen(notif.Frame())
+	if frame_len == 0
+		return
+	endif
+
+	var prop_type = ""
+	if notif.Kind() == NotificationKind.Progress
+		prop_type = "notify_progress_bar"
+	elseif notif.Kind() == NotificationKind.Spinner
+		prop_type = "notify_spinner"
+	endif
+
+	AddHighlightChars(bufnr, linenr, text, 0, min([frame_len, strcharlen(text)]), prop_type)
 enddef
 
 def AddPrefixHighlights(winid: number, bufnr: number, linenr: number, text: string)
@@ -698,6 +723,7 @@ def ApplyHighlight(winid: number, linenr: number=1)
     # Clear any existing highlights on the first line
     prop_clear(linenr, 1, {bufnr: bufnr})
 
+	AddFrameHighlight(winid, bufnr, linenr, text)
 	AddPrefixHighlights(winid, bufnr, linenr, text)
 
     # Find the FIRST occurrence of any of the target symbols.

@@ -280,6 +280,12 @@ NotifyPrefix                                             *NotifyPrefix*
 NotifySubPrefix                                       *NotifySubPrefix*
         Highlight group used for notification sub-prefixes.
 
+NotifyProgressBar                                   *NotifyProgressBar*
+        Highlight group used for notification progress bars.
+
+NotifySpinner                                           *NotifySpinner*
+        Highlight group used for notification spinners.
+
 g:notifier_carousel_interval                 *g:notifier_carousel_interval*
         Delay in milliseconds between carousel frames.
         Default: 100
