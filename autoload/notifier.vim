@@ -479,6 +479,9 @@ def GetPrefixOpt(opts: dict<any>, key: string): string
 	if !has_key(opts, key)
 		return ""
 	endif
+	if type(opts[key]) == v:t_string
+		return opts[key]
+	endif
 	return string(opts[key])
 enddef
 
