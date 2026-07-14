@@ -261,9 +261,19 @@ g:notifier_maxwidth                                         *g:notifier_maxwidth
         Maximum width of notification popups.
         Default: &columns / 2
 
-g:notifier_wrap                                             *g:notifier_wrap*
-        Whether to wrap text in notifications.
-        Default: true
+g:notifier_overflow                                     *g:notifier_overflow*
+        How notifications handle messages wider than `g:notifier_maxwidth`.
+        Supported values:
+                'wrap'      wrap onto multiple lines
+                'truncate'  keep one line and trim with an ellipsis
+                'carousel'  keep one line and scroll through the full message
+        Default: 'carousel'
+        In carousel mode, loading indicators such as spinners and progress bars
+        stay fixed while the message text scrolls.
+
+g:notifier_carousel_interval                 *g:notifier_carousel_interval*
+        Delay in milliseconds between carousel frames.
+        Default: 100
 
 They automatically adapt to `+multi_byte` support.
 
