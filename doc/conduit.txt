@@ -269,7 +269,25 @@ g:notifier_overflow                                     *g:notifier_overflow*
                 'carousel'  keep one line and scroll through the full message
         Default: 'carousel'
         In carousel mode, loading indicators such as spinners and progress bars
-        stay fixed while the message text scrolls.
+        stay fixed while the message text scrolls. Notifications may also be
+        given `prefix` and `subprefix` options; these stay fixed before the
+        message text, and for spinner/progress notifications they are shown
+        after the spinner or progress bar.
+
+NotifyPrefix                                             *NotifyPrefix*
+        Highlight group used for notification prefixes.
+
+NotifySubPrefix                                       *NotifySubPrefix*
+        Highlight group used for notification sub-prefixes.
+
+NotifyProgressBar                                   *NotifyProgressBar*
+        Highlight group used for notification progress bars.
+
+NotifySpinner                                           *NotifySpinner*
+        Highlight group used for notification spinners.
+
+NotifyMessage                                           *NotifyMessage*
+        Highlight group used for notification message text.
 
 g:notifier_carousel_interval                 *g:notifier_carousel_interval*
         Delay in milliseconds between carousel frames.

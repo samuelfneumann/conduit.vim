@@ -17,7 +17,9 @@ export enum Error
 	InvalidConduitCommand("C014"),
 	CouldNotOpenTerm("C015"),
 	InvalidOpPathFormat("C016"),
-	Misc("C017")
+	MissingNotifierOptionKey("C017"),
+	InvalidNotificationId("C018"),
+	Misc("C019")
 
 	const code: string
 

@@ -174,6 +174,9 @@ let g:notifier_overflow = 'carousel' " Or: 'wrap', 'truncate'
 let g:notifier_carousel_interval = 300
 ```
 
+Notification prefixes use `NotifyPrefix` and `NotifySubPrefix` highlight groups
+and stay fixed while carousel message text scrolls.
+
 ## 🔍 Troubleshooting
 
 - **"Connection Refused" on `lvim`**: Usually means the SSH reverse tunnel failed to bind. Check if a stale socket exists in `/tmp/.vim-conduit-...` on the remote. Conduit tries to clean these up, but a hard crash might leave them behind. Try running `ConduitExit HOST` to close the SSH ControlMaster.
