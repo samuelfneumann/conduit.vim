@@ -1423,13 +1423,16 @@ enddef
 
 # ── Command Implementation ───────────────────────────────────────────────────
 
-def OpenConduitControlMaster(conn: Connection): number
+def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): void)
 	const control_path = conn.GetConduitControlPath()
 
 	if getftype(control_path) ==# "socket"
 		system(GetSshCommandString(conn, ['-O', 'check', '-S', control_path]))
 
-		if v:shell_error == 0 | return 0 | endif
+		if v:shell_error == 0
+			Callback(0, '')
+			return
+		endif
 		system(GetSshCommandString(conn, ['-O', 'exit', '-S', control_path]))
 
 		if conn.IsManuallyControlledMultiplexing() && getftype(control_path) ==# "socket"
@@ -1437,7 +1440,8 @@ def OpenConduitControlMaster(conn: Connection): number
 		endif
 	endif
 
-	system(GetSshCommandString(
+	const ssh_error_file = tempname()
+	const ssh_job = job_start(GetSshCommandArgs(
 		conn,
 		[
 			'-fN',
@@ -1445,9 +1449,23 @@ def OpenConduitControlMaster(conn: Connection): number
 			'-o', $'ControlPersist={conn.GetConduitControlPersist()}',
 			'-S', control_path,
 		]
-		))
+	), {
+		out_io: 'null',
+		err_io: 'file',
+		err_name: ssh_error_file,
+		exit_cb: (_, code) => {
+			const ssh_error = filereadable(ssh_error_file)
+				? readfile(ssh_error_file)->join("\n")
+				: ''
+			delete(ssh_error_file)
+			Callback(code, ssh_error)
+		},
+	})
 
-	return v:shell_error
+	if job_status(ssh_job) ==# 'fail'
+		delete(ssh_error_file)
+		Callback(-1, 'Failed to start ssh')
+	endif
 enddef
 
 export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: string)
@@ -1487,18 +1505,19 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	endtry
 
 	var OpenSession = () => {
-		# Use a timer to escape the current callback context (if any)
-		# and run the session opening in a clean context.
-		timer_start(0, (_) => {
-			const open_control_master_err_code = OpenConduitControlMaster(conn)
+		OpenConduitControlMaster(conn, (open_control_master_err_code, ssh_error) => {
 			if open_control_master_err_code != 0
+				const msg = empty(ssh_error)
+					? $"ssh exited with error {open_control_master_err_code}"
+					: ssh_error
 				notifier.StopLoading(
 					notif,
-					$"× Could not open control master (ssh error: {open_control_master_err_code})",
+					$"× {msg}",
 					false,
 					GetFailureTimeout(),
 				)
-				return 
+				redraw
+				return
 			endif
 
 			# Restart notification to update the animation timer's string
@@ -1634,7 +1653,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					MaybeCleanup(conn)
 					redraw
 				},
-			) 
+			)
 		})
 	}
 
