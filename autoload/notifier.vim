@@ -575,6 +575,39 @@ def AddPrefixHighlights(winid: number, bufnr: number, linenr: number, text: stri
 	endif
 enddef
 
+def AddMarkedSymbolHighlights(bufnr: number, linenr: number, text: string)
+	const symbols = [
+		[checkmark, "notify_success"],
+		[xmark, "notify_error"],
+		["!", "notify_warning"],
+		["?", "notify_info"],
+		[right_arrow, "notify_right_arrow"],
+		[pipe, "notify_pipe"],
+	]
+	const left_marker = '‹'
+	const right_marker = '›'
+
+	for [symbol, prop_type] in symbols
+		const marked_symbol = left_marker .. symbol .. right_marker
+		var offset = 0
+		while offset < strlen(text)
+			const relative_start = stridx(strpart(text, offset), marked_symbol)
+			if relative_start == -1 | break | endif
+
+			const marker_start = offset + relative_start
+			const symbol_start = marker_start + strlen(left_marker)
+			AddHighlight(bufnr, linenr, symbol_start,
+				symbol_start + strlen(symbol), prop_type)
+			offset = marker_start + strlen(marked_symbol)
+		endwhile
+	endfor
+enddef
+
+def ConcealHighlightMarkers(winid: number)
+	setwinvar(winid, '&conceallevel', 2)
+	matchadd('Conceal', '[‹›]', 10, -1, {window: winid})
+enddef
+
 abstract class NotificationTextStrategy
 	def Wrap(): bool
 		return false
@@ -787,35 +820,8 @@ def ApplyHighlight(winid: number, linenr: number=1)
 	AddMessageHighlight(winid, bufnr, linenr, text)
 	AddFrameHighlight(winid, bufnr, linenr, text)
 	AddPrefixHighlights(winid, bufnr, linenr, text)
+	AddMarkedSymbolHighlights(bufnr, linenr, text)
 
-    # Find the FIRST occurrence of any of the target symbols.
-    # In ASCII mode, we are more restrictive to avoid highlighting characters in words.
-    var pattern = has('multi_byte') ? '[\|✓×!?→]' : '\v%(^|[ ])\zs(\||\=|x|!|\?|-\>)\ze%([ ]|$)'
-    var match_info = matchstrpos(text, pattern)
-    var start_byte = match_info[1]
-    var end_byte = match_info[2]
-
-    # If no special character is found, only prefix highlights apply.
-    if start_byte == -1 | return | endif
-
-    var matched_char = match_info[0]
-    var prop_type = ""
-
-    if matched_char ==# checkmark
-        prop_type = "notify_success"
-    elseif matched_char ==# xmark
-        prop_type = "notify_error"
-    elseif matched_char ==# "!"
-        prop_type = "notify_warning"
-    elseif matched_char ==# "?"
-        prop_type = "notify_info"
-    elseif matched_char ==# right_arrow
-        prop_type = "notify_right_arrow"
-    elseif matched_char ==# pipe
-        prop_type = "notify_pipe"
-    endif
-
-	AddHighlight(bufnr, linenr, start_byte, end_byte, prop_type)
 enddef
 
 def OnPopupClose(winid: number, result: any)
@@ -899,6 +905,7 @@ def CreatePopup(in_msg: string, opts: NotificationOptions): number
         # Use popup_notification for ephemeral messages that close on keypress
         winid = popup_notification(msg, default_opts)
     endif
+	ConcealHighlightMarkers(winid)
 
     return winid
 enddef
@@ -1057,6 +1064,7 @@ export def ShowHistory()
     execute('botright :10new')
     setlocal buftype=nofile bufhidden=wipe noswapfile
     setline(1, NotificationManager.Instance.GetHistory())
+	ConcealHighlightMarkers(win_getid())
 
 	for l in range(line("$"))
 		ApplyHighlight(win_getid(), l + 1)
