@@ -1447,7 +1447,8 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 		endif
 	endif
 
-	const term_bufnr = term_start(GetSshCommandArgs(
+	var term_bufnr = -1
+	term_bufnr = term_start(GetSshCommandArgs(
 		conn,
 		[
 			'-fN',
@@ -1459,7 +1460,7 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 			'-S', control_path,
 		]
 	), {
-		term_finish: 'close',
+		term_finish: 'open',
 		term_name: $'ConduitAuthentication[{conn.host}]',
 		hidden: false,
 		exit_cb: (_, code) => {
@@ -1472,6 +1473,10 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 				msg = $'Failed to start ssh (error: {code})'  
 			endif
 			Callback(code, msg)
+
+            if bufexists(term_bufnr) && code == 0 # Close term on success
+                execute $'bwipeout! {term_bufnr}'
+            endif
 		},
 	})
 enddef
