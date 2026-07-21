@@ -162,6 +162,14 @@ export class Connection
 		return $'/tmp/.vim-conduit-connection-{this.host}{GetProfileSuffix(this.ssh_options)}.sock'
 	enddef
 
+	def GetConnectTimeout(): number
+		return get(g:, 'conduit_connect_timeout', 10)
+	enddef
+
+	def GetConnectionAttempts(): number
+		return get(g:, 'conduit_connection_attempts', 1)
+	enddef
+
 	def Disconnect()
 		for job in this.GetTermJobs()
 			job_stop(job)
@@ -1446,6 +1454,9 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 			'-fN',
 			'-M',
 			'-o', $'ControlPersist={conn.GetConduitControlPersist()}',
+			'-o', $'ConnectTimeout={conn.GetConnectTimeout()}',
+			'-o', $'ConnectionAttempts={conn.GetConnectionAttempts()}',
+			'-o', 'BatchMode=no',
 			'-S', control_path,
 		]
 	), {
