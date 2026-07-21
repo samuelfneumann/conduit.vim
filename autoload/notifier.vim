@@ -9,6 +9,7 @@ g:notifier_carousel_interval = get(g:, 'notifier_carousel_interval', 100)
 g:notifier_carousel_end_pause = get(g:, 'notifier_carousel_end_pause', 300)
 const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth / 3))])])
 
+var pipe: string = '|'
 var checkmark: string = has('multi_byte') ? '✓' : '='
 var xmark: string = has('multi_byte') ? '×' : 'x'
 var right_arrow: string = has('multi_byte') ? '→' : '->'
@@ -437,6 +438,7 @@ class NotificationManager
 endclass
 
 # ── Highlight Groups & Text Properties ───────────────────────────────────
+hi def link NotifyPipe Operator
 hi def link NotifyRightArrow Function
 hi def link NotifySuccess String
 hi def link NotifyError Error
@@ -458,6 +460,7 @@ def InitProp(name: string, hl_group: string)
     endif
 enddef
 
+InitProp("notify_pipe", "NotifyPipe")
 InitProp("notify_right_arrow", "NotifyRightArrow")
 InitProp("notify_success", "NotifySuccess")
 InitProp("notify_error", "NotifyError")
@@ -787,7 +790,7 @@ def ApplyHighlight(winid: number, linenr: number=1)
 
     # Find the FIRST occurrence of any of the target symbols.
     # In ASCII mode, we are more restrictive to avoid highlighting characters in words.
-    var pattern = has('multi_byte') ? '[✓×!?→]' : '\v%(^|[ ])\zs(\=|x|!|\?|-\>)\ze%([ ]|$)'
+    var pattern = has('multi_byte') ? '[\|✓×!?→]' : '\v%(^|[ ])\zs(\||\=|x|!|\?|-\>)\ze%([ ]|$)'
     var match_info = matchstrpos(text, pattern)
     var start_byte = match_info[1]
     var end_byte = match_info[2]
@@ -808,6 +811,8 @@ def ApplyHighlight(winid: number, linenr: number=1)
         prop_type = "notify_info"
     elseif matched_char ==# right_arrow
         prop_type = "notify_right_arrow"
+    elseif matched_char ==# pipe
+        prop_type = "notify_pipe"
     endif
 
 	AddHighlight(bufnr, linenr, start_byte, end_byte, prop_type)

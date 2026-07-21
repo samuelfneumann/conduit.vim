@@ -1509,7 +1509,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			if open_control_master_err_code != 0
 				const msg = empty(ssh_error)
 					? $"ssh exited with error {open_control_master_err_code}"
-					: ssh_error
+					: ssh_error->split("\n")->join(" | ")
 				notifier.StopLoading(
 					notif,
 					$"× {msg}",
