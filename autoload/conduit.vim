@@ -1448,6 +1448,7 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 	endif
 
 	var term_bufnr = -1
+	var shown = false
 	term_bufnr = term_start(GetSshCommandArgs(
 		conn,
 		[
@@ -1462,7 +1463,13 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 	), {
 		term_finish: 'open',
 		term_name: $'ConduitAuthentication[{conn.host}]',
-		hidden: false,
+		hidden: true,
+		out_cb: (_, msg: string) => {
+			if !shown && bufexists(term_bufnr)
+				shown = true
+				execute 'sbuffer ' .. term_bufnr
+			endif
+		},
 		exit_cb: (_, code) => {
 			var msg: string
 			if code == -1
