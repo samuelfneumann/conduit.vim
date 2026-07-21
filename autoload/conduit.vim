@@ -878,14 +878,14 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 					notif,
 					100,
 					100,
-					$"✓ {notif_suffix}",
+					$"‹✓› {notif_suffix}",
 					{subprefix: '[success]'},
 				)
 				notifier.Dismiss(notif, GetSuccessTimeout())
 			else
 				notifier.Modify(
 					notif,
-					$"× {notif_suffix}",
+					$"‹×› {notif_suffix}",
 					{subprefix: $'[failed (error: {code})]'},
 				)
 				notifier.Dismiss(notif, GetFailureTimeout())
@@ -984,11 +984,11 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 
 	const notif_suffix = source_count == 1
 		? get
-			? $"{host}:{paths[0]} → {target_path}"
-			: $"{paths[0]} → {host}:{target_path}"
+			? $"{host}:{paths[0]} ‹→› {target_path}"
+			: $"{paths[0]} ‹→› {host}:{target_path}"
 		: get
-			? $"{source_count} {batch_label} → {target_path}"
-			: $"{source_count} {batch_label} → {host}:{target_path}"
+			? $"{source_count} {batch_label} ‹→› {target_path}"
+			: $"{source_count} {batch_label} ‹→› {host}:{target_path}"
 
 	StartTransferJob(
 		conn,
@@ -1420,7 +1420,7 @@ enddef
 
 def Warn(msg: string)
 	if g:conduit_use_popup
-		notifier.Send($'× {msg}')
+		notifier.Send($'‹×› {msg}')
 	else
 		echohl WarningMsg
 		echom msg
@@ -1522,10 +1522,10 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			if open_control_master_err_code != 0
 				const msg = empty(ssh_error)
 					? $"ssh exited with error {open_control_master_err_code}"
-					: ssh_error->split("\n")->join(" | ")
+					: ssh_error->split("\n")->join(" ‹|› ")
 				notifier.StopLoading(
 					notif,
-					$"× {msg}",
+					$"‹×› {msg}",
 					false,
 					GetFailureTimeout(),
 				)
@@ -1540,7 +1540,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			if !EnsureListener(conn)
 				notifier.StopLoading(
 					notif,
-					$"× Could not start listener",
+					$"‹×› Could not start listener",
 					false,
 					GetFailureTimeout(),
 				)
@@ -1577,7 +1577,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 								if code == 0
 									notifier.StopLoading(
 										notif,
-										$"✓ Success",
+										$"‹✓› Success",
 										false,
 										GetSuccessTimeout()
 									)
@@ -1585,7 +1585,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 								else
 									notifier.StopLoading(
 										notif,
-										$"× Failed (error: {code})",
+										$"‹×› Failed (error: {code})",
 										false,
 										GetFailureTimeout(),
 									)
@@ -1654,14 +1654,14 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					# message will only be shown briefly otherwise
 					timer_start(500, (_) => { 
 						notifier.StopLoading(
-							notif, $"✓ Success", false, GetSuccessTimeout(),
+							notif, $"‹✓› Success", false, GetSuccessTimeout(),
 						)
 					})
 					redraw
 				},
 				() => {
 					notifier.StopLoading(
-						notif, $"× Failed", false, GetFailureTimeout(),
+						notif, $"‹×› Failed", false, GetFailureTimeout(),
 					)
 					MaybeCleanup(conn)
 					redraw
@@ -1681,7 +1681,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			else
 				notifier.StopLoading(
 					notif,
-					$"× Could not clean up stale files on remote, exiting.",
+					$"‹×› Could not clean up stale files on remote, exiting.",
 					false,
 					GetFailureTimeout(),
 				)
@@ -1718,11 +1718,11 @@ export def ConduitExitCmd(host: string)
 			# SSH shutdown handle the master lifetime.
 			if success
 				notifier.StopLoading(
-					notif, $"✓ Exited from {host}", false, GetSuccessTimeout(),
+					notif, $"‹✓› Exited from {host}", false, GetSuccessTimeout(),
 				)
 			else
 				notifier.StopLoading(
-					notif, $"× Could not exit from {host}", false, GetFailureTimeout(),
+					notif, $"‹×› Could not exit from {host}", false, GetFailureTimeout(),
 				)
 			endif
 		endif
@@ -1781,7 +1781,7 @@ export def ConduitDisconnectCmd(host: string)
 		const notif = notifier.StartLoading($"Disconnecting from {host}")
 		connections[key].Disconnect()
 		notifier.StopLoading(
-			notif, $"✓ Disconnected from {host}", false, GetSuccessTimeout(),
+			notif, $"‹✓› Disconnected from {host}", false, GetSuccessTimeout(),
 		)
 		notifier.Dismiss(notif, GetSuccessTimeout())
 	else
