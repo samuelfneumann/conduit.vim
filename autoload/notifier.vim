@@ -951,7 +951,7 @@ export def StopLoading(
 	after: number = 0,
 ): number
     if final_msg != ""
-        timer_start(0, (_) => Modify(winid, final_msg, {frame: frame}))
+		Modify(winid, final_msg, {frame: frame})
 	endif
 
 	return Dismiss(winid, after)
