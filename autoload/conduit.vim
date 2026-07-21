@@ -1375,7 +1375,6 @@ def MultiChoicePrompt(items: list<string>, OnSelect: func(string), header: strin
                 add(selected_items, items[idx])
             endif
         else
-			echom "×"
             var matches = filter(copy(items), (_, val) => val =~? token)
             if !empty(matches)
                 if index(selected_items, matches[0]) == -1
