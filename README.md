@@ -172,6 +172,7 @@ let g:conduit_default_control_persist = '4h'
 let g:notifier_maxwidth = 60
 let g:notifier_overflow = 'carousel' " Or: 'wrap', 'truncate'
 let g:notifier_carousel_interval = 300
+let g:notifier_carousel_end_pause = 2 " Seconds
 ```
 
 Notification prefixes use `NotifyPrefix` and `NotifySubPrefix` highlight groups

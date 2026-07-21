@@ -166,6 +166,16 @@ g:conduit_failure_timeout
 	The number of milliseconds to persist failure notifications.
         Default: 5000
 
+g:conduit_connect_timeout			    *g:conduit_connect_timeout*
+	Seconds to wait before an ssh connection is timed out, equivalent to
+	ssh's `ConnectTimeout`
+        Default: 10
+
+g:conduit_connection_attempts			    *g:conduit_connection_attempts*
+	Number of connection attempts before giving up, equivalent to ssh's
+	`ConnectionAttempts` option
+        Default: 1
+
 ==============================================================================
 5. Remote Command (lvim)                                    *conduit-lvim*
 
@@ -291,7 +301,12 @@ NotifyMessage                                           *NotifyMessage*
 
 g:notifier_carousel_interval                 *g:notifier_carousel_interval*
         Delay in milliseconds between carousel frames.
-        Default: 100
+        Default: 300
+
+g:notifier_carousel_end_pause               *g:notifier_carousel_end_pause*
+        Number of seconds to pause after a complete carousel cycle, while the
+        beginning of the message is visible again.
+        Default: 0
 
 They automatically adapt to `+multi_byte` support.
 

@@ -6,8 +6,10 @@ import autoload 'error.vim'
 g:notifier_maxwidth = get(g:, 'notifier_maxwidth', &columns / 2)
 g:notifier_overflow = get(g:, 'notifier_overflow', 'carousel')
 g:notifier_carousel_interval = get(g:, 'notifier_carousel_interval', 100)
+g:notifier_carousel_end_pause = get(g:, 'notifier_carousel_end_pause', 300)
 const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth / 3))])])
 
+var pipe: string = '|'
 var checkmark: string = has('multi_byte') ? '✓' : '='
 var xmark: string = has('multi_byte') ? '×' : 'x'
 var right_arrow: string = has('multi_byte') ? '→' : '->'
@@ -436,6 +438,7 @@ class NotificationManager
 endclass
 
 # ── Highlight Groups & Text Properties ───────────────────────────────────
+hi def link NotifyPipe Operator
 hi def link NotifyRightArrow Function
 hi def link NotifySuccess String
 hi def link NotifyError Error
@@ -457,6 +460,7 @@ def InitProp(name: string, hl_group: string)
     endif
 enddef
 
+InitProp("notify_pipe", "NotifyPipe")
 InitProp("notify_right_arrow", "NotifyRightArrow")
 InitProp("notify_success", "NotifySuccess")
 InitProp("notify_error", "NotifyError")
@@ -511,6 +515,14 @@ def GetCarouselInterval(): number
 	return max([50, interval])
 enddef
 
+def GetCarouselEndPause(): number
+	const pause = get(g:, 'notifier_carousel_end_pause', 0)
+	if type(pause) != v:t_number && type(pause) != v:t_float
+		return 0
+	endif
+	return max([0, float2nr(pause * 1000)])
+enddef
+
 def AddFrameHighlight(winid: number, bufnr: number, linenr: number, text: string)
 	if !NotificationManager.Instance.IsActiveBy(winid)
 		return
@@ -563,6 +575,39 @@ def AddPrefixHighlights(winid: number, bufnr: number, linenr: number, text: stri
 	endif
 enddef
 
+def AddMarkedSymbolHighlights(bufnr: number, linenr: number, text: string)
+	const symbols = [
+		[checkmark, "notify_success"],
+		[xmark, "notify_error"],
+		["!", "notify_warning"],
+		["?", "notify_info"],
+		[right_arrow, "notify_right_arrow"],
+		[pipe, "notify_pipe"],
+	]
+	const left_marker = '‹'
+	const right_marker = '›'
+
+	for [symbol, prop_type] in symbols
+		const marked_symbol = left_marker .. symbol .. right_marker
+		var offset = 0
+		while offset < strlen(text)
+			const relative_start = stridx(strpart(text, offset), marked_symbol)
+			if relative_start == -1 | break | endif
+
+			const marker_start = offset + relative_start
+			const symbol_start = marker_start + strlen(left_marker)
+			AddHighlight(bufnr, linenr, symbol_start,
+				symbol_start + strlen(symbol), prop_type)
+			offset = marker_start + strlen(marked_symbol)
+		endwhile
+	endfor
+enddef
+
+def ConcealHighlightMarkers(winid: number)
+	setwinvar(winid, '&conceallevel', 2)
+	matchadd('Conceal', '[‹›]', 10, -1, {window: winid})
+enddef
+
 abstract class NotificationTextStrategy
 	def Wrap(): bool
 		return false
@@ -576,6 +621,10 @@ abstract class NotificationTextStrategy
 	enddef
 
 	def Stop(winid: number)
+	enddef
+
+	def RenderCurrent(winid: number, msg: string, fixed_prefix: string = ''): string
+		return this.Render(msg, fixed_prefix)
 	enddef
 
 	abstract def Render(msg: string, fixed_prefix: string = ''): string
@@ -647,6 +696,10 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		return this.Frame(msg, 0, fixed_prefix)
 	enddef
 
+	def RenderCurrent(winid: number, msg: string, fixed_prefix: string = ''): string
+		return this.Frame(msg, get(this.idxs, string(winid), 0), fixed_prefix)
+	enddef
+
 	def Start(winid: number, msg: string, fixed_prefix: string = '')
 		const id_str = string(winid)
 		this.msgs[id_str] = msg
@@ -654,12 +707,15 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		if !has_key(this.idxs, id_str) | this.idxs[id_str] = 0 | endif
 
 		if !has_key(this.active, id_str)
-			this.active[id_str] = timer_start(
-				GetCarouselInterval(),
-				(t) => AnimateCarousel(winid, t),
-				{repeat: -1}
-			)
+			this.Schedule(winid, GetCarouselInterval())
 		endif
+	enddef
+
+	def Schedule(winid: number, after: number)
+		this.active[string(winid)] = timer_start(
+			after,
+			(t) => AnimateCarousel(winid, t)
+		)
 	enddef
 
 	def Stop(winid: number)
@@ -675,6 +731,10 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 	def Animate(winid: number, timer_id: number)
 		const id_str = string(winid)
+		if !has_key(this.active, id_str) || this.active[id_str] != timer_id
+			return
+		endif
+		remove(this.active, id_str)
 		if !NotificationManager.Instance.IsActiveBy(winid) || !has_key(this.msgs, id_str)
 			timer_stop(timer_id)
 			return
@@ -690,6 +750,8 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 			)
 		)
 		ApplyHighlight(winid)
+		const end_pause = this.idxs[id_str] == 0 ? GetCarouselEndPause() : 0
+		this.Schedule(winid, end_pause > 0 ? end_pause : GetCarouselInterval())
 	enddef
 endclass
 
@@ -727,7 +789,7 @@ def SetDisplayText(
 	const strategy = GetTextStrategy()
 	if strategy.CanAnimate(in_msg, fixed_prefix)
 		strategy.Start(winid, in_msg, fixed_prefix)
-		popup_settext(winid, strategy.Render(in_msg, fixed_prefix))
+		popup_settext(winid, strategy.RenderCurrent(winid, in_msg, fixed_prefix))
 		ApplyHighlight(winid)
 	else
 		StopTextRendering(winid)
@@ -758,33 +820,8 @@ def ApplyHighlight(winid: number, linenr: number=1)
 	AddMessageHighlight(winid, bufnr, linenr, text)
 	AddFrameHighlight(winid, bufnr, linenr, text)
 	AddPrefixHighlights(winid, bufnr, linenr, text)
+	AddMarkedSymbolHighlights(bufnr, linenr, text)
 
-    # Find the FIRST occurrence of any of the target symbols.
-    # In ASCII mode, we are more restrictive to avoid highlighting characters in words.
-    var pattern = has('multi_byte') ? '[✓×!?→]' : '\v%(^|[ ])\zs(\=|x|!|\?|-\>)\ze%([ ]|$)'
-    var match_info = matchstrpos(text, pattern)
-    var start_byte = match_info[1]
-    var end_byte = match_info[2]
-
-    # If no special character is found, only prefix highlights apply.
-    if start_byte == -1 | return | endif
-
-    var matched_char = match_info[0]
-    var prop_type = ""
-
-    if matched_char ==# checkmark
-        prop_type = "notify_success"
-    elseif matched_char ==# xmark
-        prop_type = "notify_error"
-    elseif matched_char ==# "!"
-        prop_type = "notify_warning"
-    elseif matched_char ==# "?"
-        prop_type = "notify_info"
-    elseif matched_char ==# right_arrow
-        prop_type = "notify_right_arrow"
-    endif
-
-	AddHighlight(bufnr, linenr, start_byte, end_byte, prop_type)
 enddef
 
 def OnPopupClose(winid: number, result: any)
@@ -868,6 +905,7 @@ def CreatePopup(in_msg: string, opts: NotificationOptions): number
         # Use popup_notification for ephemeral messages that close on keypress
         winid = popup_notification(msg, default_opts)
     endif
+	ConcealHighlightMarkers(winid)
 
     return winid
 enddef
@@ -951,7 +989,7 @@ export def StopLoading(
 	after: number = 0,
 ): number
     if final_msg != ""
-        timer_start(0, (_) => Modify(winid, final_msg, {frame: frame}))
+		Modify(winid, final_msg, {frame: frame})
 	endif
 
 	return Dismiss(winid, after)
@@ -1026,6 +1064,7 @@ export def ShowHistory()
     execute('botright :10new')
     setlocal buftype=nofile bufhidden=wipe noswapfile
     setline(1, NotificationManager.Instance.GetHistory())
+	ConcealHighlightMarkers(win_getid())
 
 	for l in range(line("$"))
 		ApplyHighlight(win_getid(), l + 1)

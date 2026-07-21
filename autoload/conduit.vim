@@ -162,6 +162,14 @@ export class Connection
 		return $'/tmp/.vim-conduit-connection-{this.host}{GetProfileSuffix(this.ssh_options)}.sock'
 	enddef
 
+	def GetConnectTimeout(): number
+		return get(g:, 'conduit_connect_timeout', 10)
+	enddef
+
+	def GetConnectionAttempts(): number
+		return get(g:, 'conduit_connection_attempts', 1)
+	enddef
+
 	def Disconnect()
 		for job in this.GetTermJobs()
 			job_stop(job)
@@ -870,14 +878,14 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 					notif,
 					100,
 					100,
-					$"✓ {notif_suffix}",
+					$"‹✓› {notif_suffix}",
 					{subprefix: '[success]'},
 				)
 				notifier.Dismiss(notif, GetSuccessTimeout())
 			else
 				notifier.Modify(
 					notif,
-					$"× {notif_suffix}",
+					$"‹×› {notif_suffix}",
 					{subprefix: $'[failed (error: {code})]'},
 				)
 				notifier.Dismiss(notif, GetFailureTimeout())
@@ -976,11 +984,11 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 
 	const notif_suffix = source_count == 1
 		? get
-			? $"{host}:{paths[0]} → {target_path}"
-			: $"{paths[0]} → {host}:{target_path}"
+			? $"{host}:{paths[0]} ‹→› {target_path}"
+			: $"{paths[0]} ‹→› {host}:{target_path}"
 		: get
-			? $"{source_count} {batch_label} → {target_path}"
-			: $"{source_count} {batch_label} → {host}:{target_path}"
+			? $"{source_count} {batch_label} ‹→› {target_path}"
+			: $"{source_count} {batch_label} ‹→› {host}:{target_path}"
 
 	StartTransferJob(
 		conn,
@@ -1375,7 +1383,6 @@ def MultiChoicePrompt(items: list<string>, OnSelect: func(string), header: strin
                 add(selected_items, items[idx])
             endif
         else
-			echom "×"
             var matches = filter(copy(items), (_, val) => val =~? token)
             if !empty(matches)
                 if index(selected_items, matches[0]) == -1
@@ -1413,7 +1420,7 @@ enddef
 
 def Warn(msg: string)
 	if g:conduit_use_popup
-		notifier.Send($'× {msg}')
+		notifier.Send($'‹×› {msg}')
 	else
 		echohl WarningMsg
 		echom msg
@@ -1423,13 +1430,16 @@ enddef
 
 # ── Command Implementation ───────────────────────────────────────────────────
 
-def OpenConduitControlMaster(conn: Connection): number
+def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): void)
 	const control_path = conn.GetConduitControlPath()
 
 	if getftype(control_path) ==# "socket"
 		system(GetSshCommandString(conn, ['-O', 'check', '-S', control_path]))
 
-		if v:shell_error == 0 | return 0 | endif
+		if v:shell_error == 0
+			Callback(0, '')
+			return
+		endif
 		system(GetSshCommandString(conn, ['-O', 'exit', '-S', control_path]))
 
 		if conn.IsManuallyControlledMultiplexing() && getftype(control_path) ==# "socket"
@@ -1437,17 +1447,38 @@ def OpenConduitControlMaster(conn: Connection): number
 		endif
 	endif
 
-	system(GetSshCommandString(
+	var term_bufnr = -1
+	term_bufnr = term_start(GetSshCommandArgs(
 		conn,
 		[
 			'-fN',
 			'-M',
 			'-o', $'ControlPersist={conn.GetConduitControlPersist()}',
+			'-o', $'ConnectTimeout={conn.GetConnectTimeout()}',
+			'-o', $'ConnectionAttempts={conn.GetConnectionAttempts()}',
+			'-o', 'BatchMode=no',
 			'-S', control_path,
 		]
-		))
+	), {
+		term_finish: 'open',
+		term_name: $'ConduitAuthentication[{conn.host}]',
+		hidden: false,
+		exit_cb: (_, code) => {
+			var msg: string
+			if code == -1
+				msg = 'Authentication cancelled'
+			elseif code == 0
+				msg = 'Authentication successful'
+			else
+				msg = $'Failed to start ssh (error: {code})'  
+			endif
+			Callback(code, msg)
 
-	return v:shell_error
+            if bufexists(term_bufnr) && code == 0 # Close term on success
+                execute $'bwipeout! {term_bufnr}'
+            endif
+		},
+	})
 enddef
 
 export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: string)
@@ -1487,18 +1518,19 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	endtry
 
 	var OpenSession = () => {
-		# Use a timer to escape the current callback context (if any)
-		# and run the session opening in a clean context.
-		timer_start(0, (_) => {
-			const open_control_master_err_code = OpenConduitControlMaster(conn)
+		OpenConduitControlMaster(conn, (open_control_master_err_code, ssh_error) => {
 			if open_control_master_err_code != 0
+				const msg = empty(ssh_error)
+					? $"ssh exited with error {open_control_master_err_code}"
+					: ssh_error->split("\n")->join(" ‹|› ")
 				notifier.StopLoading(
 					notif,
-					$"× Could not open control master (ssh error: {open_control_master_err_code})",
+					$"‹×› {msg}",
 					false,
 					GetFailureTimeout(),
 				)
-				return 
+				redraw
+				return
 			endif
 
 			# Restart notification to update the animation timer's string
@@ -1508,7 +1540,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			if !EnsureListener(conn)
 				notifier.StopLoading(
 					notif,
-					$"× Could not start listener",
+					$"‹×› Could not start listener",
 					false,
 					GetFailureTimeout(),
 				)
@@ -1545,7 +1577,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 								if code == 0
 									notifier.StopLoading(
 										notif,
-										$"✓ Success",
+										$"‹✓› Success",
 										false,
 										GetSuccessTimeout()
 									)
@@ -1553,7 +1585,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 								else
 									notifier.StopLoading(
 										notif,
-										$"× Failed (error: {code})",
+										$"‹×› Failed (error: {code})",
 										false,
 										GetFailureTimeout(),
 									)
@@ -1622,19 +1654,19 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					# message will only be shown briefly otherwise
 					timer_start(500, (_) => { 
 						notifier.StopLoading(
-							notif, $"✓ Success", false, GetSuccessTimeout(),
+							notif, $"‹✓› Success", false, GetSuccessTimeout(),
 						)
 					})
 					redraw
 				},
 				() => {
 					notifier.StopLoading(
-						notif, $"× Failed", false, GetFailureTimeout(),
+						notif, $"‹×› Failed", false, GetFailureTimeout(),
 					)
 					MaybeCleanup(conn)
 					redraw
 				},
-			) 
+			)
 		})
 	}
 
@@ -1649,7 +1681,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			else
 				notifier.StopLoading(
 					notif,
-					$"× Could not clean up stale files on remote, exiting.",
+					$"‹×› Could not clean up stale files on remote, exiting.",
 					false,
 					GetFailureTimeout(),
 				)
@@ -1686,11 +1718,11 @@ export def ConduitExitCmd(host: string)
 			# SSH shutdown handle the master lifetime.
 			if success
 				notifier.StopLoading(
-					notif, $"✓ Exited from {host}", false, GetSuccessTimeout(),
+					notif, $"‹✓› Exited from {host}", false, GetSuccessTimeout(),
 				)
 			else
 				notifier.StopLoading(
-					notif, $"× Could not exit from {host}", false, GetFailureTimeout(),
+					notif, $"‹×› Could not exit from {host}", false, GetFailureTimeout(),
 				)
 			endif
 		endif
@@ -1749,7 +1781,7 @@ export def ConduitDisconnectCmd(host: string)
 		const notif = notifier.StartLoading($"Disconnecting from {host}")
 		connections[key].Disconnect()
 		notifier.StopLoading(
-			notif, $"✓ Disconnected from {host}", false, GetSuccessTimeout(),
+			notif, $"‹✓› Disconnected from {host}", false, GetSuccessTimeout(),
 		)
 		notifier.Dismiss(notif, GetSuccessTimeout())
 	else
