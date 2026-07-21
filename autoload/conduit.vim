@@ -1447,8 +1447,7 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 		endif
 	endif
 
-	const ssh_error_file = tempname()
-	const ssh_job = job_start(GetSshCommandArgs(
+	const term_bufnr = term_start(GetSshCommandArgs(
 		conn,
 		[
 			'-fN',
@@ -1460,22 +1459,21 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 			'-S', control_path,
 		]
 	), {
-		out_io: 'null',
-		err_io: 'file',
-		err_name: ssh_error_file,
+		term_finish: 'close',
+		term_name: $'ConduitAuthentication[{conn.host}]',
+		hidden: false,
 		exit_cb: (_, code) => {
-			const ssh_error = filereadable(ssh_error_file)
-				? readfile(ssh_error_file)->join("\n")
-				: ''
-			delete(ssh_error_file)
-			Callback(code, ssh_error)
+			var msg: string
+			if code == -1
+				msg = 'Authentication cancelled'
+			elseif code == 0
+				msg = 'Authentication successful'
+			else
+				msg = $'Failed to start ssh (error: {code})'  
+			endif
+			Callback(code, msg)
 		},
 	})
-
-	if job_status(ssh_job) ==# 'fail'
-		delete(ssh_error_file)
-		Callback(-1, 'Failed to start ssh')
-	endif
 enddef
 
 export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: string)
