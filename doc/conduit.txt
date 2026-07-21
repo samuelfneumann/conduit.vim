@@ -291,7 +291,12 @@ NotifyMessage                                           *NotifyMessage*
 
 g:notifier_carousel_interval                 *g:notifier_carousel_interval*
         Delay in milliseconds between carousel frames.
-        Default: 100
+        Default: 300
+
+g:notifier_carousel_end_pause               *g:notifier_carousel_end_pause*
+        Number of seconds to pause after a complete carousel cycle, while the
+        beginning of the message is visible again.
+        Default: 0
 
 They automatically adapt to `+multi_byte` support.
 

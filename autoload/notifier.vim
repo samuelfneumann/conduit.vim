@@ -6,6 +6,7 @@ import autoload 'error.vim'
 g:notifier_maxwidth = get(g:, 'notifier_maxwidth', &columns / 2)
 g:notifier_overflow = get(g:, 'notifier_overflow', 'carousel')
 g:notifier_carousel_interval = get(g:, 'notifier_carousel_interval', 100)
+g:notifier_carousel_end_pause = get(g:, 'notifier_carousel_end_pause', 300)
 const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth / 3))])])
 
 var checkmark: string = has('multi_byte') ? '✓' : '='
@@ -511,6 +512,14 @@ def GetCarouselInterval(): number
 	return max([50, interval])
 enddef
 
+def GetCarouselEndPause(): number
+	const pause = get(g:, 'notifier_carousel_end_pause', 0)
+	if type(pause) != v:t_number && type(pause) != v:t_float
+		return 0
+	endif
+	return max([0, float2nr(pause * 1000)])
+enddef
+
 def AddFrameHighlight(winid: number, bufnr: number, linenr: number, text: string)
 	if !NotificationManager.Instance.IsActiveBy(winid)
 		return
@@ -576,6 +585,10 @@ abstract class NotificationTextStrategy
 	enddef
 
 	def Stop(winid: number)
+	enddef
+
+	def RenderCurrent(winid: number, msg: string, fixed_prefix: string = ''): string
+		return this.Render(msg, fixed_prefix)
 	enddef
 
 	abstract def Render(msg: string, fixed_prefix: string = ''): string
@@ -647,6 +660,10 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		return this.Frame(msg, 0, fixed_prefix)
 	enddef
 
+	def RenderCurrent(winid: number, msg: string, fixed_prefix: string = ''): string
+		return this.Frame(msg, get(this.idxs, string(winid), 0), fixed_prefix)
+	enddef
+
 	def Start(winid: number, msg: string, fixed_prefix: string = '')
 		const id_str = string(winid)
 		this.msgs[id_str] = msg
@@ -654,12 +671,15 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		if !has_key(this.idxs, id_str) | this.idxs[id_str] = 0 | endif
 
 		if !has_key(this.active, id_str)
-			this.active[id_str] = timer_start(
-				GetCarouselInterval(),
-				(t) => AnimateCarousel(winid, t),
-				{repeat: -1}
-			)
+			this.Schedule(winid, GetCarouselInterval())
 		endif
+	enddef
+
+	def Schedule(winid: number, after: number)
+		this.active[string(winid)] = timer_start(
+			after,
+			(t) => AnimateCarousel(winid, t)
+		)
 	enddef
 
 	def Stop(winid: number)
@@ -675,6 +695,10 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 	def Animate(winid: number, timer_id: number)
 		const id_str = string(winid)
+		if !has_key(this.active, id_str) || this.active[id_str] != timer_id
+			return
+		endif
+		remove(this.active, id_str)
 		if !NotificationManager.Instance.IsActiveBy(winid) || !has_key(this.msgs, id_str)
 			timer_stop(timer_id)
 			return
@@ -690,6 +714,8 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 			)
 		)
 		ApplyHighlight(winid)
+		const end_pause = this.idxs[id_str] == 0 ? GetCarouselEndPause() : 0
+		this.Schedule(winid, end_pause > 0 ? end_pause : GetCarouselInterval())
 	enddef
 endclass
 
@@ -727,7 +753,7 @@ def SetDisplayText(
 	const strategy = GetTextStrategy()
 	if strategy.CanAnimate(in_msg, fixed_prefix)
 		strategy.Start(winid, in_msg, fixed_prefix)
-		popup_settext(winid, strategy.Render(in_msg, fixed_prefix))
+		popup_settext(winid, strategy.RenderCurrent(winid, in_msg, fixed_prefix))
 		ApplyHighlight(winid)
 	else
 		StopTextRendering(winid)
