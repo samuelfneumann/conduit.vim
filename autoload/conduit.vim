@@ -468,14 +468,20 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	var ssh_options: list<string> = []
 	var term_options: dict<any> = {}
 	var idx = 0
-	while idx < len(tokens) && tokens[idx] =~# '^\(++\|--\)'
+	# `+opt` (single leading plus) introduces a short-form ssh option (one
+	# character, e.g. `+R=...`); `++opt` introduces a long-form term option.
+	# A bare `++` or `--` (alone) ends option-parsing.
+	while idx < len(tokens) && tokens[idx] =~# '^\(+\|--\)'
 		var raw_token = tokens[idx]
-		var token = raw_token[2 : ]
 
 		if raw_token =~# '^\(++\|--\)$' # ++/-- indicate end of options
 			idx += 1
 			break
 		endif
+
+		const is_long = raw_token =~# '^++'
+		const prefix_len = is_long ? 2 : 1
+		var token = raw_token[prefix_len : ]
 
 		if empty(token)
 			throw error.Error.InvalidConduitOption.Format("invalid conduit option")
@@ -490,25 +496,47 @@ def ParseConduitOpenArgs(args: string): dict<any>
 				throw error.Error.InvalidSshOption.Format('invalid ssh option')
 			endif
 
-			if index(ssh_opts_with_value, token) >= 0
+			if !is_long && len(flag) != 1
+				throw error.Error.InvalidSshOption.Format(
+					$'short ssh option "+{flag}" must be a single character; use "++{flag}" for long options'
+				)
+			elseif is_long && len(flag) == 1
+				throw error.Error.InvalidConduitOption.Format(
+					$'long option "++{flag}" must not be a single character; use "+{flag}" for short ssh options'
+				)
+			endif
+
+			if !is_long && index(ssh_opts_with_value, flag) >= 0
 				ssh_options->extend([$'-{flag}', val])
-			elseif index(term_opts_with_value, flag) >= 0
+			elseif is_long && index(term_opts_with_value, flag) >= 0
 				term_options[flag] = val
+			else
+				throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 			endif
 			idx += 1
 			continue
 		endif
 
-		if index(ssh_opts_with_value, token) >= 0
+		if !is_long && len(token) != 1
+			throw error.Error.InvalidSshOption.Format(
+				$'short ssh option "+{token}" must be a single character; use "++{token}" for long options'
+			)
+		elseif is_long && len(token) == 1
+			throw error.Error.InvalidConduitOption.Format(
+				$'long option "++{token}" must not be a single character; use "+{token}" for short ssh options'
+			)
+		endif
+
+		if !is_long && index(ssh_opts_with_value, token) >= 0
 			if idx + 1 >= len(tokens)
 				throw error.Error.SshOptionRequiresValue.Format(
-					$'ssh option ++{token} requires a value'
+					$'ssh option +{token} requires a value'
 				)
 			endif
 			ssh_options->extend([$'-{token}', tokens[idx + 1]])
 			idx += 2
 			continue
-		elseif index(term_opts_with_value, token) >= 0
+		elseif is_long && index(term_opts_with_value, token) >= 0
 			if idx + 1 >= len(tokens)
 				throw error.Error.TermOptionRequiresValue.Format(
 					$'term option ++{token} requires a value'
@@ -519,10 +547,12 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			continue
 		endif
 
-		if index(term_opts, token) >= 0
+		if is_long && index(term_opts, token) >= 0
 			term_options[token] = ""
-		else
+		elseif !is_long
 			ssh_options->add($'-{token}')
+		else
+			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 		endif
 		idx += 1
 	endwhile
@@ -1542,7 +1572,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
     # redraw!
 
     if empty(args)
-        Warn($'Usage:  {prefix} [++SSHOPT ...] [user@]host[:port]')
+        Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
         return
     endif
@@ -1551,7 +1581,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		parsed = ParseConduitOpenArgs(args)
 	catch
-		Warn($'Usage:  {prefix} [++SSHOPT ...] [user@]host[:port]')
+		Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -1565,7 +1595,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		conn = MaybeAddEmptyConnection(host, port, ssh_options)
 	catch /E1013/
-        Warn($'Usage:  {prefix} [++SSHOPT ...] [user@]host[:port]')
+        Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -1895,7 +1925,7 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 
 	if cmd ==# "open" # :Conduit open HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit open [++SSHOPT ...] [user@]host[:port]"
+			echoerr "Usage:  Conduit open [+SSHOPT|++TERMOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(deploy_only, curwin, mods, cmd_args)
 		endif
@@ -1909,7 +1939,7 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 
 	elseif cmd ==# "deploy" # :Conduit deploy HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit deploy [++SSHOPT ...] [user@]host[:port]"
+			echoerr "Usage:  Conduit deploy [+SSHOPT|++TERMOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(true, false, '', cmd_args)
 		endif
@@ -2072,20 +2102,22 @@ def MaybeRemoveOptions(CmdLine: string, suggestions: list<string>): list<string>
 enddef
 
 export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
-	var opts = term_opts + mapnew(
-		term_opts_with_value + ssh_opts_with_value,
-		(_, v) => v .. '='
-	)
+	# Short-form (`+`) options are single-character ssh flags; long-form
+	# (`++`) options are the (multi-character) term options.
+	var short_opts = mapnew(ssh_opts_with_value, (_, v) => v .. '=')
+	var long_opts = term_opts + mapnew(term_opts_with_value, (_, v) => v .. '=')
 
 	var suggestions: list<string>
 	if empty(ArgLead)
-		suggestions = ['++']
+		suggestions = ['+', '++']
 	elseif ArgLead =~# '^++[a-zA-Z=]\+'
-		suggestions = mapnew(matchfuzzy(opts, ArgLead[2 : ]), (_, v) => '++' .. v)
+		suggestions = mapnew(matchfuzzy(long_opts, ArgLead[2 : ]), (_, v) => '++' .. v)
 	elseif ArgLead =~# '^+[a-zA-Z=]\+'
-		suggestions = mapnew(matchfuzzy(opts, ArgLead[1 : ]), (_, v) => '++' .. v)
+		suggestions = mapnew(matchfuzzy(short_opts, ArgLead[1 : ]), (_, v) => '+' .. v)
 	elseif ArgLead =~# '^++\?$'
-		suggestions = ['++'] + mapnew(opts, (_, v) => '++' .. v)
+		suggestions = ['+', '++']
+			+ mapnew(short_opts, (_, v) => '+' .. v)
+			+ mapnew(long_opts, (_, v) => '++' .. v)
 	endif
 
 	return MaybeRemoveOptions(CmdLine, suggestions)
