@@ -72,7 +72,7 @@ Then, read the docs:
 :tab Conduit open user@example.com
 :topleft Conduit open user@example.com
 :bo vert Conduit open user@example.com
-:tabnew | Conduit open ++J user@example1.com user@example2.com
+:tabnew | Conduit open +J user@example1.com user@example2.com
 
 " Deploy the remote environment without opening a terminal
 :Conduit deploy user@example.com
@@ -83,7 +83,10 @@ Then, read the docs:
 :Conduit source user@example.com
 
 " Show notification history
-:Conduit notifications
+:Conduit notifications history
+
+" Dismiss active notification
+:Conduit notifications dismiss
 
 " Stop a transfer for a connection
 :Conduit stop get user@example.com '*.log'
@@ -94,7 +97,7 @@ Then, read the docs:
 :Conduit disconnect user@example.com
 ```
 
-`open` and `deploy` accept SSH options with the `++` prefix, see [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
+`open` and `deploy` accept SSH options with the `+` prefix (and Vim terminal options with `++`), see [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
 
 
 ### The `lvim` command
@@ -121,19 +124,49 @@ By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the comm
 
 ### SSH Options
 
-`:Conduit open` and `:Conduit deploy` accepts SSH flags before the destination
-host using a `++` prefix. The most useful case is jump hosts:
+`:Conduit open` and `:Conduit deploy` accept SSH flags before the destination
+host using a single `+` prefix — one character, matching `ssh`'s own short
+options (`++` is reserved for the separate, multi-character Vim terminal
+options like `++curwin`; see `:help :Conduit-open`). The most useful case is
+jump hosts:
 
 ```vim
-:Conduit open ++J user1@host1 user2@host2
+:Conduit open +J user1@host1 user2@host2
 ```
 
-That maps to `ssh -J user1@host1 user2@host2` and is threaded through the
-control master, reverse tunnel, file transfer, and cleanup commands.
+That maps to `ssh -J user1@host1 user2@host2`.
 
-When you open more than one profile for the same host, Conduit tracks each one
-with a profile key like `user@host:22-1a2b3c4d5e6f`. Use that key for
+Conduit keys each connection by host, port, and the effective `+` SSH options
+used to open it. Repeating `:Conduit open` for the same host+port+options just
+multiplexes through the existing SSH ControlMaster (no re-authentication, even
+under MFA) and attaches another terminal to it. Only when the effective SSH
+options actually differ — e.g. a different jump host — does Conduit track it
+as a separate profile, keyed like `user@host:22-1a2b3c4d5e6f`. Use that key for
 `:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
+
+#### Forwarding flags (`-L`/`-R`/`-D`/`-w`)
+
+Most `+` SSH options (like `+J`, `+i`, `+p`) are threaded through every SSH
+call Conduit makes for a connection — the shared ControlMaster, the reverse
+tunnel, file transfers, cleanup, everything.
+
+Port/socket forwarding flags are the exception: `+L`, `+R`, `+D`, and `+w` are
+only applied to the *one new SSH session* your `:Conduit open`/`deploy` call
+creates (the interactive terminal, or the deploy-only background tunnel) —
+not to the shared ControlMaster's own setup, connectivity checks, or
+`scp`/`rsync` file transfers. This is deliberate:
+
+- The ControlMaster stays a plain, reusable connection, so opening a tunnel
+  once doesn't leave it dangling on every future command for that connection.
+- Each `:Conduit open`/`deploy` call can carry its own distinct forward
+  without conflicting with another session's, since ssh multiplexes them as
+  independent sessions on top of the same authenticated master:
+  ```vim
+  :Conduit open +R=8080:localhost:80 host
+  :Conduit open +R=9090:localhost:90 host   " a second, independent tunnel
+  ```
+- `scp` doesn't understand `-L`/`-R` the way `ssh` does (`-R` means something
+  else entirely for `scp`), so file transfers never see these flags.
 
 ### Advanced Fuzzy Uploads (`put`)
 
@@ -171,7 +204,7 @@ let g:conduit_default_control_persist = '4h'
 ```vim
 let g:notifier_maxwidth = 60
 let g:notifier_overflow = 'carousel' " Or: 'wrap', 'truncate'
-let g:notifier_carousel_interval = 300
+let g:notifier_carousel_interval = 300 " Carousel animation frame speed in ms
 let g:notifier_carousel_end_pause = 2 " Seconds
 ```
 
@@ -180,7 +213,7 @@ and stay fixed while carousel message text scrolls.
 
 ## 🔍 Troubleshooting
 
-- **"Connection Refused" on `lvim`**: Usually means the SSH reverse tunnel failed to bind. Check if a stale socket exists in `/tmp/.vim-conduit-...` on the remote. Conduit tries to clean these up, but a hard crash might leave them behind. Try running `ConduitExit HOST` to close the SSH ControlMaster.
+- **"Connection Refused" on `lvim`**: Usually means the SSH reverse tunnel failed to bind. Check if a stale socket exists in `/tmp/.vim-conduit-...` on the remote. Conduit tries to clean these up, but a hard crash might leave them behind. Try running `:Conduit exit HOST` to close the SSH ControlMaster.
 - **No Progress Bars**: Ensure you have `rsync` installed locally. While `scp` works, it provides less granular progress information to Vim.
 - **Netrw Errors**: Conduit uses Vim's built-in `netrw` for the actual editing. If you have `let g:loaded_netrwPlugin = 1` in your config, Conduit's edit functionality **will** break.
 
