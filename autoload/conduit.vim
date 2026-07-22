@@ -424,15 +424,17 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	var ssh_options: list<string> = []
 	var term_options: dict<any> = {}
 	var idx = 0
-	while idx < len(tokens) && tokens[idx] =~# '^++'
-		var token = tokens[idx][2 : ]
-		if empty(token)
-			throw error.Error.InvalidConduitOption.Format("invalid conduit option")
-		endif
+	while idx < len(tokens) && tokens[idx] =~# '^\(++\|--\)'
+		var raw_token = tokens[idx]
+		var token = raw_token[2 : ]
 
-		if token =~# '^--'
+		if raw_token =~# '^\(++\|--\)$' # ++/-- indicate end of options
 			idx += 1
 			break
+		endif
+
+		if empty(token)
+			throw error.Error.InvalidConduitOption.Format("invalid conduit option")
 		endif
 
 		const eq_idx = stridx(token, '=')
@@ -1992,23 +1994,32 @@ export def ConduitActiveCompl(ArgLead: string, CmdLine: string, CursorPos: numbe
 	return ConduitActiveComplHelper(current_cmd, ArgLead)
 enddef
 
+def MaybeRemoveOptions(CmdLine: string, suggestions: list<string>): list<string>
+	const no_opts = CmdLine =~# '\s\(++\|--\)\s'
+	if no_opts
+		return filter(copy(suggestions), (_, v) => v !~ '^+')
+	endif
+	return suggestions
+enddef
+
 export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
-	const opts = term_opts + mapnew(
+	var opts = term_opts + mapnew(
 		term_opts_with_value + ssh_opts_with_value,
 		(_, v) => v .. '='
 	)
 
+	var suggestions: list<string>
 	if empty(ArgLead)
-		return ['++']
+		suggestions = ['++']
 	elseif ArgLead =~# '^++[a-zA-Z=]\+'
-		return mapnew(matchfuzzy(opts, ArgLead[2 : ]), (_, v) => '++' .. v)
+		suggestions = mapnew(matchfuzzy(opts, ArgLead[2 : ]), (_, v) => '++' .. v)
 	elseif ArgLead =~# '^+[a-zA-Z=]\+'
-		return mapnew(matchfuzzy(opts, ArgLead[1 : ]), (_, v) => '++' .. v)
+		suggestions = mapnew(matchfuzzy(opts, ArgLead[1 : ]), (_, v) => '++' .. v)
 	elseif ArgLead =~# '^++\?$'
-		return ['++'] + mapnew(opts, (_, v) => '++' .. v)
+		suggestions = ['++'] + mapnew(opts, (_, v) => '++' .. v)
 	endif
 
-	return []
+	return MaybeRemoveOptions(CmdLine, suggestions)
 enddef
 
 export def ConduitHostAndOptionCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
