@@ -1857,6 +1857,21 @@ export def ConduitCopySourceCmd(host: string)
 	endif
 enddef
 
+export def ConduitSocketCmd(host: string)
+	const key = ResolveConnectionKey(host)
+	if empty(key)
+		Warn($'No host "{host}"')
+		return
+	endif
+
+	const conn = connections[key]
+	if get(g:, 'conduit_echo_socket', false)
+		echom $'[socket] {key} → {conn.GetConduitControlPath()}'
+	else
+		notifier.Send($'{key} ‹→› {conn.GetConduitControlPath()}', {prefix: '[socket]'})
+	endif
+enddef
+
 export def ConduitNotificationCmd(cmd: string)
 	if cmd ==# "history"
 		notifier.ShowHistory()
@@ -1915,6 +1930,13 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 
 	elseif cmd ==# "notifications" # :Conduit notifications
 		ConduitNotificationCmd(args[1])
+
+	elseif cmd ==# "socket" # :Conduit socket HOST
+		if len(args) != 2
+			echoerr "Usage:  Conduit socket [connection-key]"
+		else
+			ConduitSocketCmd(args[1])
+		endif
 
 	elseif cmd ==# "stop" # :Conduit stop OP HOST PATTERN
 		if len(args) != 4
@@ -2091,7 +2113,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
     # Completing the sub-command (e.g., "Conduit op")
 	const mods = '\(' .. modifiers->join('\|') .. '\)\? \?'
     if current_cmd =~ $'^{mods}Conduit!\? \+\S*$'
-        var options = ["open", "exit", "deploy", "disconnect", "source", "notifications", "stop"]
+        var options = ["open", "exit", "deploy", "disconnect", "source", "notifications", "stop", "socket"]
 		if empty(ArgLead) | return options | endif
         return matchfuzzy(options, ArgLead)
 
