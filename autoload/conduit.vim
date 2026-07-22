@@ -56,6 +56,15 @@ const ssh_opts_with_value = [
 	'p', 'Q', 'R', 'S', 'W', 'w',
 ]
 
+# ssh options that establish port/socket/tunnel forwarding. These only make
+# sense on the one new ssh session that is meant to carry them (the
+# interactive terminal, or the deploy-only persistent tunnel) — they must
+# never reach `scp` (which has its own unrelated meaning for `-R`) and should
+# not be repeated on every other ssh invocation for a connection (control
+# master creation, `-O`/`-G` queries, rsync's `--rsh`), since those aren't
+# the session the user meant the tunnel for.
+const ssh_forwarding_opts = ['D', 'L', 'R', 'W', 'w']
+
 # Vim-terminal options
 const term_opts = [
 	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
@@ -368,22 +377,57 @@ def GetPortArgs(conn: Connection, scp: bool = false): list<string>
 	return []
 enddef
 
-def GetSshArgs(conn: Connection): list<string>
+# Splits a connection's ssh_options into [forwarding, non-forwarding],
+# keeping value-taking options paired with their value.
+def SplitForwardingSshOptions(ssh_options: list<string>): tuple<list<string>, list<string>>
+	var forwarding: list<string> = []
+	var other: list<string> = []
+	var i = 0
+	while i < len(ssh_options)
+		const opt = ssh_options[i]
+		const flag = opt[1 :]
+		const is_forwarding = index(ssh_forwarding_opts, flag) >= 0
+		var dest = is_forwarding ? forwarding : other
+		if index(ssh_opts_with_value, flag) >= 0
+			dest->extend(ssh_options[i : i + 1])
+			i += 2
+		else
+			dest->add(opt)
+			i += 1
+		endif
+	endwhile
+	return (forwarding, other)
+enddef
+
+def GetNonForwardingSshOptions(conn: Connection): list<string>
+	const [_, other] = SplitForwardingSshOptions(conn.GetSshOptions())
+	return other
+enddef
+
+def GetForwardingSshOptions(conn: Connection): list<string>
+	const [forwarding, _] = SplitForwardingSshOptions(conn.GetSshOptions())
+	return forwarding
+enddef
+
+# `include_forwarding` should only be true for the one new ssh session meant
+# to carry the user's tunnel/forward options (the interactive terminal, or
+# the deploy-only persistent tunnel) — see `ssh_forwarding_opts`.
+def GetSshArgs(conn: Connection, include_forwarding: bool = false): list<string>
 	var args = ['ssh']
-	args->extend(conn.GetSshOptions())
+	args->extend(include_forwarding ? conn.GetSshOptions() : GetNonForwardingSshOptions(conn))
 	args->extend(GetPortArgs(conn))
 	return args
 enddef
 
 def GetScpArgs(conn: Connection): list<string>
 	var args: list<string> = []
-	args->extend(conn.GetSshOptions())
+	args->extend(GetNonForwardingSshOptions(conn))
 	args->extend(GetPortArgs(conn, true))
 	return args
 enddef
 
-def GetSshCommandArgs(conn: Connection, head_args: list<string>, tail_args: list<string> = []): list<string>
-	var args = GetSshArgs(conn)
+def GetSshCommandArgs(conn: Connection, head_args: list<string>, tail_args: list<string> = [], include_forwarding: bool = false): list<string>
+	var args = GetSshArgs(conn, include_forwarding)
 	args->extend(head_args)
 	args->add(conn.host)
 	args->extend(tail_args)
@@ -1577,7 +1621,9 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 								'-o', 'StreamLocalBindUnlink=yes',
 								'-o', 'ExitOnForwardFailure=yes',
 								'-R', tunnel,
-							]
+							],
+							[],
+							true,
 						)
 
 						job_start(
@@ -1622,7 +1668,8 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 							'--rcfile',
 							remote_rc,
 							'-i',
-						]
+						], 
+						true,
 					)
 
 					var term_name = 'conduit://' .. conn.GetProfileKey()
