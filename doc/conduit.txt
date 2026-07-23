@@ -7,7 +7,8 @@ remote SSH sessions. It allows you to open files from a remote shell directly
 in your local Vim, and perform background file transfers (get/put) with
 progress notifications.
 
-NOTE: This plugin requires Vim 9.1 or later with +job and +popupwin.
+NOTE: This plugin requires Vim 9.1 or later with +job, +popupwin, and
++reltime.
 
 ==============================================================================
 1. Usage                                                    *conduit-usage*
@@ -37,22 +38,53 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 
         Subcommands:
 
-:Conduit open [++SSHOPT ...] [++TERMOPT ...] [--] [user@]host[:port]
+:Conduit open [+SSHOPT ...] [++TERMOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-open*
-        Open a new conduit session to {host}. `++` options before the host
-        are parsed as SSH flags or Vim terminal options. SSH options are
-        forwarded to `ssh`. Terminal options include `++curwin`,
-        `++vertical`, `++hidden`, `++norestore`, `++open`, `++close`,
-        `++noclose`, `++rows=N`, `++cols=N`, `++eof=...`, `++api=...`,
-        `++kill=...`, and `++opencmd=...`. Use `++--` to stop option parsing
-        before the host if needed.
+        Open a new conduit session to {host}. Options before the host are
+        parsed as either short-form SSH flags (single `+`) or long-form Vim
+        terminal options (`++`):
 
-:Conduit deploy [++SSHOPT ...] [++TERMOPT ...] [--] [user@]host[:port]
+        - `+X` — a single-character SSH flag forwarded to `ssh`, e.g. `+p
+          2222`, `+i ~/.ssh/id_ed25519`, or `+R=8080:localhost:80` (`=` and
+          space-separated forms are both accepted). See
+          |conduit-forwarding| for how `-L`/`-R`/`-D`/`-w` forwarding flags
+          are scoped.
+        - `++opt` — a (multi-character) Vim terminal option: `++curwin`,
+          `++vertical`, `++hidden`, `++norestore`, `++open`, `++close`,
+          `++noclose`, `++rows=N`, `++cols=N`, `++eof=...`, `++api=...`,
+          `++kill=...`, and `++opencmd=...`.
+
+        A `+X` name must be exactly one character; a `++name` must not be.
+        Mixing them up (e.g. `++R` or `+curwin`) is an error. A bare `++` (or
+        `--`) by itself stops option parsing before the host, useful if the
+        host or a later argument would otherwise be mistaken for an option.
+
+:Conduit deploy [+SSHOPT ...] [++TERMOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-deploy*
         Deploy the conduit environment to {host} without opening a terminal.
         This is useful when you already have an SSH session elsewhere and
         only want to inject the remote `lvim` environment. On success, Conduit
-        echoes and copies the remote `source` command.
+        echoes and copies the remote `source` command. Like |:Conduit-open|,
+        this still opens its own background SSH session to carry the
+        `lvim` reverse tunnel (and any `+SSHOPT` forwarding you request) — see
+        |conduit-forwarding|.
+
+                                                            *conduit-forwarding*
+SSH forwarding flags (`+L`, `+R`, `+D`, `+w`) are only applied to the one new
+SSH session that a `:Conduit open` or `:Conduit deploy` call creates (the
+interactive terminal, or the deploy-only tunnel), not to Conduit's
+housekeeping SSH calls for that connection (the shared ControlMaster's own
+setup, connectivity checks, or background `scp`/`rsync` file transfers).
+
+This matters because ssh multiplexes all of these onto one shared
+ControlMaster connection per host/port/option profile: the master itself is
+created without any forwarding flags, so it stays a plain, reusable
+connection, and each `:Conduit open`/`deploy` call layers its own tunnel(s)
+on top of it as a fresh multiplexed session. That means running `:Conduit
+open +R=8080:localhost:80 host` twice, with different forwards each time,
+opens two independent tunnels rather than conflicting — and `scp`/`rsync`
+transfers (which don't understand `-R`/`-L` the way `ssh` does) never see
+these flags at all.
 
 :Conduit exit {connection-key}                              *:Conduit-exit*
         Cleanly close the conduit session for {connection-key}, removing
@@ -77,6 +109,9 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         Connection keys are resolved by exact key, by host name, or by a
         unique prefix. When multiple profiles are open for the same host, use
         the full profile key shown by completion or in notifications.
+
+:Conduit socket {connection-key}                            *:Conduit-socket*
+        Show the ControlMaster socket path used for {connection-key}.
 
 3. Deprecated Commands                                     *conduit-deprecated*
 
@@ -168,13 +203,18 @@ g:conduit_failure_timeout
 
 g:conduit_connect_timeout			    *g:conduit_connect_timeout*
 	Seconds to wait before an ssh connection is timed out, equivalent to
-	ssh's `ConnectTimeout`
+	ssh's `ConnectTimeout`.
         Default: 10
 
 g:conduit_connection_attempts			    *g:conduit_connection_attempts*
 	Number of connection attempts before giving up, equivalent to ssh's
-	`ConnectionAttempts` option
+	`ConnectionAttempts` option.
         Default: 1
+
+g:conduit_echo_socket				    *g:conduit_echo_socket*
+	Use `echom` for the `:Conduit socket` command, rather than displaying
+	in a notification.
+        Default: false
 
 ==============================================================================
 5. Remote Command (lvim)                                    *conduit-lvim*
@@ -254,10 +294,22 @@ using a `++` prefix:
 This is translated to `ssh -J user1@host1 user2@host2` and applies to the
 entire Conduit session.
 
-When multiple profiles are open for the same host, Conduit uses a profile key
-that appends a short hash to the host and port, for example
-`user@host:22-1a2b3c4d5e6f`. Use that key with `:Conduit exit`,
-`:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
+Conduit identifies each connection by a profile key derived from its host,
+port, and the effective `++` SSH options used to open it (including any
+options set via |g:conduit_host2sshoptions|). Repeating `:Conduit open` for a
+host+port+options combination that is already open resolves to the *same*
+profile key: Conduit multiplexes through the existing SSH ControlMaster and
+just attaches another terminal to it, rather than opening a brand new SSH
+connection. This means repeat opens do not require re-authenticating (e.g.
+under MFA) since they piggyback on the already-authenticated connection.
+
+A distinct profile is only created when the effective SSH options differ from
+an already-open profile to the same host and port (for example, connecting
+via a different jump host). In that case Conduit appends a short hash of
+those options to the host and port to keep the profile keys unique, for
+example `user@host:22-1a2b3c4d5e6f`. Use the resulting key (hashed or not)
+with `:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and
+`:Conduit stop`.
 
 ==============================================================================
 6. Notifications                                            *conduit-notifications*
