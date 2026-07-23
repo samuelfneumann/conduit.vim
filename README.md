@@ -143,20 +143,24 @@ options actually differ — e.g. a different jump host — does Conduit track it
 as a separate profile, keyed like `user@host:22-1a2b3c4d5e6f`. Use that key for
 `:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
 
-#### Forwarding flags (`-L`/`-R`/`-D`/`-w`)
+#### Forwarding flags (`+L`/`+R`/`+D`/`+W`/`+w`)
 
 Most `+` SSH options (like `+J`, `+i`, `+p`) are threaded through every SSH
 call Conduit makes for a connection — the shared ControlMaster, the reverse
 tunnel, file transfers, cleanup, everything.
 
-Port/socket forwarding flags are the exception: `+L`, `+R`, `+D`, and `+w` are
-only applied to the *one new SSH session* your `:Conduit open`/`deploy` call
-creates (the interactive terminal, or the deploy-only background tunnel) —
-not to the shared ControlMaster's own setup, connectivity checks, or
-`scp`/`rsync` file transfers. This is deliberate:
+Forwarding flags are the exception: `+L`, `+R`, `+D`, `+W`, and `+w` are only
+applied to the *one new SSH session* your `:Conduit open`/`deploy` call creates
+(the interactive terminal, or the deploy-only background tunnel) — not to the
+shared ControlMaster's own setup, connectivity checks, or `scp`/`rsync` file
+transfers. This is deliberate:
 
 - The ControlMaster stays a plain, reusable connection, so opening a tunnel
   once doesn't leave it dangling on every future command for that connection.
+  Forwarding options do not affect either a configured ControlPath or
+  Conduit's fallback ControlPath; the fallback remains keyed by the
+  non-forwarding SSH options so different forwards reuse the same authenticated
+  master.
 - Each `:Conduit open`/`deploy` call can carry its own distinct forward
   without conflicting with another session's, since ssh multiplexes them as
   independent sessions on top of the same authenticated master:
@@ -166,6 +170,9 @@ not to the shared ControlMaster's own setup, connectivity checks, or
   ```
 - `scp` doesn't understand `-L`/`-R` the way `ssh` does (`-R` means something
   else entirely for `scp`), so file transfers never see these flags.
+
+`+W` requests stdio forwarding, while `+w` requests tunnel-device forwarding;
+both receive the same session-only scoping as the port-forwarding flags.
 
 ### Advanced Fuzzy Uploads (`put`)
 
