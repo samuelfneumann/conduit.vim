@@ -2181,6 +2181,7 @@ export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number)
 		suggestions = mapnew(matchfuzzy(long_opts, ArgLead[2 : ]), (_, v) => '++' .. v)
 	elseif ArgLead =~# '^+[a-zA-Z=]\+'
 		suggestions = mapnew(matchfuzzy(short_opts, ArgLead[1 : ]), (_, v) => '+' .. v)
+			->extend(mapnew(matchfuzzy(long_opts, ArgLead[1 : ]), (_, v) => '++' .. v))
 	elseif ArgLead =~# '^+$'
 		suggestions = ['+', '++']
 			+ mapnew(short_opts, (_, v) => '+' .. v)
