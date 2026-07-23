@@ -50,32 +50,127 @@ const open_file_ops = [
 # All supported `lvim` ops
 const all_ops = ["put", "get", "mget", "mput"]->extend(open_file_ops)->extend(modifiers)
 
-# ssh options that take arguments
-const ssh_opts_with_value = [
-	'B', 'b', 'c', 'D', 'E', 'F', 'I', 'i', 'J', 'l', 'L', 'm', 'O', 'o',
-	'p', 'Q', 'R', 'S', 'W', 'w',
+abstract class ConduitOption
+	var takes_value: bool
+	var long: string = ''
+
+	def ShortName(): string
+		return ''
+	enddef
+
+	def IsForwarding(): bool
+		return false
+	enddef
+
+	def Is(other: ConduitOption): bool
+		return this is other
+	enddef
+
+	abstract def Apply(ssh_options: list<string>, term_options: dict<any>, value: string)
+	abstract def MissingValueError(): error.Error
+endclass
+
+class SshOption extends ConduitOption
+	var short: string
+	var is_forwarding: bool
+
+	def new(short: string, long: string = '', takes_value: bool = true, is_forwarding: bool = false)
+		this.short = short
+		this.long = long
+		this.takes_value = takes_value
+		this.is_forwarding = is_forwarding
+	enddef
+
+	def ShortName(): string
+		return this.short
+	enddef
+
+	def IsForwarding(): bool
+		return this.is_forwarding
+	enddef
+
+	def Apply(ssh_options: list<string>, term_options: dict<any>, value: string)
+		ssh_options->extend(this.takes_value ? [$'-{this.short}', value] : [$'-{this.short}'])
+	enddef
+
+	def MissingValueError(): error.Error
+		return error.Error.SshOptionRequiresValue
+	enddef
+endclass
+
+class TermOption extends ConduitOption
+	def new(long: string, takes_value: bool = false)
+		this.long = long
+		this.takes_value = takes_value
+	enddef
+
+	def Apply(ssh_options: list<string>, term_options: dict<any>, value: string)
+		term_options[this.long] = value
+	enddef
+
+	def MissingValueError(): error.Error
+		return error.Error.TermOptionRequiresValue
+	enddef
+endclass
+
+const ssh_option_specs: list<SshOption> = [
+	SshOption.new('B', 'bindinterface'),
+	SshOption.new('b', 'bindaddress'),
+	SshOption.new('c', 'cipher'),
+	SshOption.new('D', 'dynamicforward', true, true),
+	SshOption.new('E', 'logfile'),
+	SshOption.new('F', 'config'),
+	SshOption.new('I', 'pkcs11'),
+	SshOption.new('i', 'identity'),
+	SshOption.new('J', 'jump'),
+	SshOption.new('l', 'login'),
+	SshOption.new('L', 'localforward', true, true),
+	SshOption.new('m', 'mac'),
+	SshOption.new('O', 'control'),
+	SshOption.new('o', 'option'),
+	SshOption.new('p', 'port'),
+	SshOption.new('Q', 'query'),
+	SshOption.new('R', 'remoteforward', true, true),
+	SshOption.new('S', 'controlpath'),
+	SshOption.new('W', 'stdioforward', true, true),
+	SshOption.new('w', 'tunnel', true, true),
 ]
 
-# ssh options that establish port/socket/tunnel forwarding. These only make
-# sense on the one new ssh session that is meant to carry them (the
-# interactive terminal, or the deploy-only persistent tunnel) — they must
-# never reach `scp` (which has its own unrelated meaning for `-R`) and should
-# not be repeated on every other ssh invocation for a connection (control
-# master creation, `-O`/`-G` queries, rsync's `--rsh`), since those aren't
-# the session the user meant the tunnel for.
-const ssh_forwarding_opts = ['D', 'L', 'R', 'W', 'w']
-
-# Vim-terminal options
-const term_opts = [
-	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
+const term_option_specs: list<TermOption> = [
+	TermOption.new('vertical'), TermOption.new('close'), TermOption.new('noclose'),
+	TermOption.new('curwin'), TermOption.new('open'), TermOption.new('hidden'),
+	TermOption.new('norestore'), TermOption.new('shell'),
+	TermOption.new('rows', true), TermOption.new('cols', true), TermOption.new('eof', true),
+	TermOption.new('api', true), TermOption.new('kill', true), TermOption.new('opencmd', true),
 ]
 
-# Vim-terminal options that take arguments
-const term_opts_with_value = [
-	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
-]
+var all_option_specs: list<ConduitOption> = []
+all_option_specs->extend(ssh_option_specs)
+all_option_specs->extend(term_option_specs)
 
-const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
+var opts_by_short: dict<ConduitOption> = {}
+var opts_by_long: dict<ConduitOption> = {}
+for spec in all_option_specs
+	if !empty(spec.long) | opts_by_long[spec.long] = spec | endif
+	const short = spec.ShortName()
+	if !empty(short) | opts_by_short[short] = spec | endif
+endfor
+
+# Compatibility views for parsing and completion while those consumers are
+# migrated to the option catalog.
+var ssh_opts_with_value: list<string> = []
+var term_opts: list<string> = []
+var term_opts_with_value: list<string> = []
+for spec in ssh_option_specs
+	if spec.takes_value | ssh_opts_with_value->add(spec.ShortName()) | endif
+endfor
+for spec in term_option_specs
+	if spec.takes_value
+		term_opts_with_value->add(spec.long)
+	else
+		term_opts->add(spec.long)
+	endif
+endfor
 
 
 # ── Classes & Core Types ─────────────────────────────────────────────────────
@@ -386,9 +481,10 @@ def SplitForwardingSshOptions(ssh_options: list<string>): tuple<list<string>, li
 	while i < len(ssh_options)
 		const opt = ssh_options[i]
 		const flag = opt[1 :]
-		const is_forwarding = index(ssh_forwarding_opts, flag) >= 0
+		const spec: ConduitOption = get(opts_by_short, flag, null_object)
+		const is_forwarding = spec isnot null_object && spec.IsForwarding()
 		var dest = is_forwarding ? forwarding : other
-		if index(ssh_opts_with_value, flag) >= 0
+		if spec isnot null_object && spec.takes_value
 			dest->extend(ssh_options[i : i + 1])
 			i += 2
 		else
@@ -411,7 +507,7 @@ enddef
 
 # `include_forwarding` should only be true for the one new ssh session meant
 # to carry the user's tunnel/forward options (the interactive terminal, or
-# the deploy-only persistent tunnel) — see `ssh_forwarding_opts`.
+# the deploy-only persistent tunnel).
 def GetSshArgs(conn: Connection, include_forwarding: bool = false): list<string>
 	var args = ['ssh']
 	args->extend(include_forwarding ? conn.GetSshOptions() : GetNonForwardingSshOptions(conn))
