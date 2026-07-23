@@ -591,7 +591,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 		const lookup = is_long ? opts_by_long : opts_by_short
 		const spec: ConduitOption = get(lookup, name, null_object)
 		if spec is null_object
-			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
+			throw error.Error.InvalidConduitOption.Format($'option {raw_token} is unknown')
 		endif
 
 		if has_eq
@@ -1642,7 +1642,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		parsed = ParseConduitOpenArgs(args)
 	catch
-		Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
+		Warn(v:exception)
 		notifier.Dismiss(notif)
 		return
 	endtry
