@@ -50,35 +50,70 @@ const open_file_ops = [
 # All supported `lvim` ops
 const all_ops = ["put", "get", "mget", "mput"]->extend(open_file_ops)->extend(modifiers)
 
-# ssh options that take arguments
-const ssh_opts_with_value = [
-	'B', 'b', 'c', 'D', 'E', 'F', 'I', 'i', 'J', 'l', 'L', 'm', 'O', 'o',
-	'p', 'Q', 'R', 'S', 'W', 'w',
-]
-
-# ssh options that establish port/socket/tunnel forwarding. These only make
-# sense on the one new ssh session that is meant to carry them (the
-# interactive terminal, or the deploy-only persistent tunnel) — they must
-# never reach `scp` (which has its own unrelated meaning for `-R`) and should
-# not be repeated on every other ssh invocation for a connection (control
-# master creation, `-O`/`-G` queries, rsync's `--rsh`), since those aren't
-# the session the user meant the tunnel for.
-const ssh_forwarding_opts = ['D', 'L', 'R', 'W', 'w']
-
-# Vim-terminal options
-const term_opts = [
-	'vertical', 'close', 'noclose', 'curwin', 'open', 'hidden', 'norestore', 'shell'
-]
-
-# Vim-terminal options that take arguments
-const term_opts_with_value = [
-	'rows', 'cols', 'eof', 'api', 'kill', 'opencmd'
-]
-
-const all_opts = ssh_opts_with_value + term_opts_with_value + term_opts
-
-
 # ── Classes & Core Types ─────────────────────────────────────────────────────
+abstract class ConduitOption
+	var takes_value: bool
+	var long: string = ''
+
+	def ShortName(): string
+		return ''
+	enddef
+
+	def IsForwarding(): bool
+		return false
+	enddef
+
+	def Is(other: ConduitOption): bool
+		return this is other
+	enddef
+
+	abstract def Apply(ssh_options: list<string>, term_options: dict<any>, value: string)
+	abstract def MissingValueError(): error.Error
+endclass
+
+class SshOption extends ConduitOption
+	var short: string
+	var is_forwarding: bool
+
+	def new(short: string, long: string = '', takes_value: bool = true, is_forwarding: bool = false)
+		this.short = short
+		this.long = long
+		this.takes_value = takes_value
+		this.is_forwarding = is_forwarding
+	enddef
+
+	def ShortName(): string
+		return this.short
+	enddef
+
+	def IsForwarding(): bool
+		return this.is_forwarding
+	enddef
+
+	def Apply(ssh_options: list<string>, term_options: dict<any>, value: string)
+		ssh_options->extend(this.takes_value ? [$'-{this.short}', value] : [$'-{this.short}'])
+	enddef
+
+	def MissingValueError(): error.Error
+		return error.Error.SshOptionRequiresValue
+	enddef
+endclass
+
+class TermOption extends ConduitOption
+	def new(long: string, takes_value: bool = false)
+		this.long = long
+		this.takes_value = takes_value
+	enddef
+
+	def Apply(ssh_options: list<string>, term_options: dict<any>, value: string)
+		term_options[this.long] = value
+	enddef
+
+	def MissingValueError(): error.Error
+		return error.Error.TermOptionRequiresValue
+	enddef
+endclass
+
 export class Connection
 	static var host2shell: dict<string> = g:conduit_host2shell
 	static var fallback_shell: string = g:conduit_fallback_shell
@@ -316,6 +351,53 @@ endclass
 
 # ── Connection & State Management ────────────────────────────────────────────
 
+# List of all Conduit SSH options
+const ssh_option_specs: list<SshOption> = [
+	SshOption.new('B', 'bindinterface'),
+	SshOption.new('b', 'bindaddress'),
+	SshOption.new('c', 'cipher'),
+	SshOption.new('D', 'dynamicforward', true, true),
+	SshOption.new('E', 'logfile'),
+	SshOption.new('F', 'config'),
+	SshOption.new('I', 'pkcs11'),
+	SshOption.new('i', 'identity'),
+	SshOption.new('J', 'jump'),
+	SshOption.new('l', 'login'),
+	SshOption.new('L', 'localforward', true, true),
+	SshOption.new('m', 'mac'),
+	SshOption.new('O', 'control'),
+	SshOption.new('o', 'option'),
+	SshOption.new('p', 'port'),
+	SshOption.new('Q', 'query'),
+	SshOption.new('R', 'remoteforward', true, true),
+	SshOption.new('S', 'controlpath'),
+	SshOption.new('W', 'stdioforward', true, true),
+	SshOption.new('w', 'tunnel', true, true),
+]
+
+# List of all Conduit terminal options
+const term_option_specs: list<TermOption> = [
+	TermOption.new('vertical'), TermOption.new('close'), TermOption.new('noclose'),
+	TermOption.new('curwin'), TermOption.new('open'), TermOption.new('hidden'),
+	TermOption.new('norestore'), TermOption.new('shell'),
+	TermOption.new('rows', true), TermOption.new('cols', true), TermOption.new('eof', true),
+	TermOption.new('api', true), TermOption.new('kill', true), TermOption.new('opencmd', true),
+]
+
+# Stores all ConduitOptions
+var all_option_specs: list<ConduitOption> = []
+all_option_specs->extend(ssh_option_specs)
+all_option_specs->extend(term_option_specs)
+
+# Stores short/long option text -> ConduitOption
+var opts_by_short: dict<ConduitOption> = {}
+var opts_by_long: dict<ConduitOption> = {}
+for spec in all_option_specs
+	if !empty(spec.long) | opts_by_long[spec.long] = spec | endif
+	const short = spec.ShortName()
+	if !empty(short) | opts_by_short[short] = spec | endif
+endfor
+
 # Stores profile key -> Connections
 var connections: dict<Connection> = {}
 
@@ -386,9 +468,10 @@ def SplitForwardingSshOptions(ssh_options: list<string>): tuple<list<string>, li
 	while i < len(ssh_options)
 		const opt = ssh_options[i]
 		const flag = opt[1 :]
-		const is_forwarding = index(ssh_forwarding_opts, flag) >= 0
+		const spec: ConduitOption = get(opts_by_short, flag, null_object)
+		const is_forwarding = spec isnot null_object && spec.IsForwarding()
 		var dest = is_forwarding ? forwarding : other
-		if index(ssh_opts_with_value, flag) >= 0
+		if spec isnot null_object && spec.takes_value
 			dest->extend(ssh_options[i : i + 1])
 			i += 2
 		else
@@ -411,7 +494,7 @@ enddef
 
 # `include_forwarding` should only be true for the one new ssh session meant
 # to carry the user's tunnel/forward options (the interactive terminal, or
-# the deploy-only persistent tunnel) — see `ssh_forwarding_opts`.
+# the deploy-only persistent tunnel).
 def GetSshArgs(conn: Connection, include_forwarding: bool = false): list<string>
 	var args = ['ssh']
 	args->extend(include_forwarding ? conn.GetSshOptions() : GetNonForwardingSshOptions(conn))
@@ -468,8 +551,9 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	var ssh_options: list<string> = []
 	var term_options: dict<any> = {}
 	var idx = 0
-	# `+opt` (single leading plus) introduces a short-form ssh option (one
-	# character, e.g. `+R=...`); `++opt` introduces a long-form term option.
+	# `+x` and `++name` select short- and long-form syntax respectively; the
+	# resolved option determines whether it configures ssh or Vim's terminal.
+	# SSH options therefore accept long aliases such as `++port` and `++jump`.
 	# A bare `++` or `--` (alone) ends option-parsing.
 	while idx < len(tokens) && tokens[idx] =~# '^\(+\|--\)'
 		var raw_token = tokens[idx]
@@ -488,69 +572,51 @@ def ParseConduitOpenArgs(args: string): dict<any>
 		endif
 
 		const eq_idx = stridx(token, '=')
-		if eq_idx >= 0
-			const flag = token[: eq_idx - 1]
-			const val = token[eq_idx + 1 : ]
+		const has_eq = eq_idx >= 0
+		const name = has_eq ? token[: eq_idx - 1] : token
+		const inline_val = has_eq ? token[eq_idx + 1 :] : ''
 
-			if empty(flag) || empty(val)
-				throw error.Error.InvalidSshOption.Format('invalid ssh option')
-			endif
+		if empty(name) || (has_eq && empty(inline_val))
+			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
+		endif
 
-			if !is_long && len(flag) != 1
-				throw error.Error.InvalidSshOption.Format(
-					$'short ssh option "+{flag}" must be a single character; use "++{flag}" for long options'
-				)
-			elseif is_long && len(flag) == 1
-				throw error.Error.InvalidConduitOption.Format(
-					$'long option "++{flag}" must not be a single character; use "+{flag}" for short ssh options'
-				)
-			endif
+		if !is_long && len(name) != 1
+			throw error.Error.InvalidSshOption.Format(
+				$'short option "+{name}" must be a single character; use "++{name}" for long-form options'
+			)
+		elseif is_long && len(name) == 1
+			throw error.Error.InvalidConduitOption.Format(
+				$'long-form option "++{name}" must not be a single character; use "+{name}" for short options'
+			)
+		endif
 
-			if !is_long && index(ssh_opts_with_value, flag) >= 0
-				ssh_options->extend([$'-{flag}', val])
-			elseif is_long && index(term_opts_with_value, flag) >= 0
-				term_options[flag] = val
-			else
+		const lookup = is_long ? opts_by_long : opts_by_short
+		const spec: ConduitOption = get(lookup, name, null_object)
+
+		if has_eq
+			if spec is null_object || !spec.takes_value
 				throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 			endif
+			spec.Apply(ssh_options, term_options, inline_val)
 			idx += 1
 			continue
 		endif
 
-		if !is_long && len(token) != 1
-			throw error.Error.InvalidSshOption.Format(
-				$'short ssh option "+{token}" must be a single character; use "++{token}" for long options'
-			)
-		elseif is_long && len(token) == 1
-			throw error.Error.InvalidConduitOption.Format(
-				$'long option "++{token}" must not be a single character; use "+{token}" for short ssh options'
-			)
-		endif
-
-		if !is_long && index(ssh_opts_with_value, token) >= 0
+		if spec isnot null_object && spec.takes_value
 			if idx + 1 >= len(tokens)
-				throw error.Error.SshOptionRequiresValue.Format(
-					$'ssh option +{token} requires a value'
+				throw spec.MissingValueError().Format(
+					$'option {raw_token} requires a value'
 				)
 			endif
-			ssh_options->extend([$'-{token}', tokens[idx + 1]])
-			idx += 2
-			continue
-		elseif is_long && index(term_opts_with_value, token) >= 0
-			if idx + 1 >= len(tokens)
-				throw error.Error.TermOptionRequiresValue.Format(
-					$'term option ++{token} requires a value'
-				)
-			endif
-			term_options[token] = tokens[idx + 1]
+			spec.Apply(ssh_options, term_options, tokens[idx + 1])
 			idx += 2
 			continue
 		endif
 
-		if is_long && index(term_opts, token) >= 0
-			term_options[token] = ""
+		if spec isnot null_object
+			spec.Apply(ssh_options, term_options, '')
 		elseif !is_long
-			ssh_options->add($'-{token}')
+			ssh_options->add($'-{name}')
 		else
 			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 		endif
@@ -1572,7 +1638,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
     # redraw!
 
     if empty(args)
-        Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
+        Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
         return
     endif
@@ -1581,7 +1647,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		parsed = ParseConduitOpenArgs(args)
 	catch
-		Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
+		Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -1595,7 +1661,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		conn = MaybeAddEmptyConnection(host, port, ssh_options)
 	catch /E1013/
-        Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
+        Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -1925,7 +1991,7 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 
 	if cmd ==# "open" # :Conduit open HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit open [+SSHOPT|++TERMOPT ...] [user@]host[:port]"
+			echoerr "Usage:  Conduit open [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(deploy_only, curwin, mods, cmd_args)
 		endif
@@ -1939,7 +2005,7 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 
 	elseif cmd ==# "deploy" # :Conduit deploy HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit deploy [+SSHOPT|++TERMOPT ...] [user@]host[:port]"
+			echoerr "Usage:  Conduit deploy [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(true, false, '', cmd_args)
 		endif
@@ -2102,18 +2168,20 @@ def MaybeRemoveOptions(CmdLine: string, suggestions: list<string>): list<string>
 enddef
 
 export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
-	# Short-form (`+`) options are single-character ssh flags; long-form
-	# (`++`) options are the (multi-character) term options.
-	var short_opts = mapnew(ssh_opts_with_value, (_, v) => v .. '=')
-	var long_opts = term_opts + mapnew(term_opts_with_value, (_, v) => v .. '=')
+	var short_opts = copy(ssh_option_specs)
+		->filter((_, spec) => spec.takes_value)
+		->map((_, spec) => spec.ShortName() .. '=')
+	var long_opts = all_option_specs
+		->mapnew((_, spec) => spec.long .. (spec.takes_value ? '=' : ''))
 
 	var suggestions: list<string>
 	if empty(ArgLead)
 		suggestions = ['+', '++']
-	elseif ArgLead =~# '^++[a-zA-Z=]\+'
+	elseif ArgLead =~# '^++[a-zA-Z0-9=]\+'
 		suggestions = mapnew(matchfuzzy(long_opts, ArgLead[2 : ]), (_, v) => '++' .. v)
 	elseif ArgLead =~# '^+[a-zA-Z=]\+'
 		suggestions = mapnew(matchfuzzy(short_opts, ArgLead[1 : ]), (_, v) => '+' .. v)
+			->extend(mapnew(matchfuzzy(long_opts, ArgLead[1 : ]), (_, v) => '++' .. v))
 	elseif ArgLead =~# '^+$'
 		suggestions = ['+', '++']
 			+ mapnew(short_opts, (_, v) => '+' .. v)

@@ -38,35 +38,45 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 
         Subcommands:
 
-:Conduit open [+SSHOPT ...] [++TERMOPT ...] [++] [user@]host[:port]
+:Conduit open [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-open*
         Open a new conduit session to {host}. Options before the host are
-        parsed as either short-form SSH flags (single `+`) or long-form Vim
-        terminal options (`++`):
+        written in short form (`+X`) or long form (`++name`). The option's
+        identity, rather than its spelling, determines whether it configures
+        ssh or Vim's terminal. Value-taking options accept either `=value` or
+        a space-separated value.
 
-        - `+X` — a single-character SSH flag forwarded to `ssh`, e.g. `+p
-          2222`, `+i ~/.ssh/id_ed25519`, or `+R=8080:localhost:80` (`=` and
-          space-separated forms are both accepted). See
-          |conduit-forwarding| for how `-L`/`-R`/`-D`/`-w` forwarding flags
-          are scoped.
-        - `++opt` — a (multi-character) Vim terminal option: `++curwin`,
-          `++vertical`, `++hidden`, `++norestore`, `++open`, `++close`,
-          `++noclose`, `++rows=N`, `++cols=N`, `++eof=...`, `++api=...`,
-          `++kill=...`, and `++opencmd=...`.
+        SSH options have both forms:
+        `+B` / `++bindinterface`, `+b` / `++bindaddress`,
+        `+c` / `++cipher`, `+D` / `++dynamicforward`,
+        `+E` / `++logfile`, `+F` / `++config`, `+I` / `++pkcs11`,
+        `+i` / `++identity`, `+J` / `++jump`, `+l` / `++login`,
+        `+L` / `++localforward`, `+m` / `++mac`, `+O` / `++control`,
+        `+o` / `++option`, `+p` / `++port`, `+Q` / `++query`,
+        `+R` / `++remoteforward`, `+S` / `++controlpath`,
+        `+W` / `++stdioforward`, and `+w` / `++tunnel`.
+        For example, `+p 2222` and `++port 2222` are equivalent, as are
+        `+J user@bastion` and `++jump user@bastion`. See
+        |conduit-forwarding| for how forwarding options are scoped.
 
-        A `+X` name must be exactly one character; a `++name` must not be.
-        Mixing them up (e.g. `++R` or `+curwin`) is an error. A bare `++` (or
-        `--`) by itself stops option parsing before the host, useful if the
-        host or a later argument would otherwise be mistaken for an option.
+        Vim terminal options currently use long form: `++curwin`,
+        `++vertical`, `++hidden`, `++norestore`, `++open`, `++close`,
+        `++noclose`, `++shell`, `++rows=N`, `++cols=N`, `++eof=...`,
+        `++api=...`, `++kill=...`, and `++opencmd=...`.
 
-:Conduit deploy [+SSHOPT ...] [++TERMOPT ...] [++] [user@]host[:port]
+        A short-form name must be exactly one character; a long-form name
+        must not be. Unlisted short-form names such as `+v` pass through raw
+        to ssh, while long-form names are a closed, validated set. A bare
+        `++` (or `--`) by itself stops option parsing before the host.
+
+:Conduit deploy [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-deploy*
         Deploy the conduit environment to {host} without opening a terminal.
         This is useful when you already have an SSH session elsewhere and
         only want to inject the remote `lvim` environment. On success, Conduit
         echoes and copies the remote `source` command. Like |:Conduit-open|,
         this still opens its own background SSH session to carry the
-        `lvim` reverse tunnel (and any `+SSHOPT` forwarding you request) — see
+        `lvim` reverse tunnel (and any forwarding option you request) — see
         |conduit-forwarding|.
 
                                                             *conduit-forwarding*
@@ -286,16 +296,20 @@ If no operation is provided, |g:conduit_default_split| is used.
 For `put`, if the local path is not found, conduit will attempt a fuzzy
 search in the local CWD up to |g:conduit_put_max_depth|.
 
-`Conduit open` and `Conduit deploy` also accept SSH options before the host
-using a `++` prefix:
+`Conduit open` and `Conduit deploy` also accept SSH options before the host,
+using either their short or long spelling:
 
-`:Conduit open ++J user1@host1 user2@host2`
+`:Conduit open +J user1@host1 user2@host2`
+
+or equivalently:
+
+`:Conduit open ++jump user1@host1 user2@host2`
 
 This is translated to `ssh -J user1@host1 user2@host2` and applies to the
 entire Conduit session.
 
 Conduit identifies each connection by a profile key derived from its host,
-port, and the effective `++` SSH options used to open it (including any
+port, and the effective SSH options used to open it (including any
 options set via |g:conduit_host2sshoptions|). Repeating `:Conduit open` for a
 host+port+options combination that is already open resolves to the *same*
 profile key: Conduit multiplexes through the existing SSH ControlMaster and
