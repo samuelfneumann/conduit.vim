@@ -588,20 +588,14 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			)
 		endif
 
-		# -O and -W replace the normal remote session, while -S overrides the
-		# control socket Conduit manages. Reject these before unknown short
-		# options are passed through to ssh.
-		if !is_long && index(['O', 'S', 'W'], name) >= 0
-			throw error.Error.InvalidSshOption.Format(
-				$'ssh option "{raw_token}" is incompatible with Conduit'
-			)
-		endif
-
 		const lookup = is_long ? opts_by_long : opts_by_short
 		const spec: ConduitOption = get(lookup, name, null_object)
+		if spec is null_object
+			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
+		endif
 
 		if has_eq
-			if spec is null_object || !spec.takes_value
+			if !spec.takes_value
 				throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 			endif
 			spec.Apply(ssh_options, term_options, inline_val)
@@ -609,7 +603,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			continue
 		endif
 
-		if spec isnot null_object && spec.takes_value
+		if spec.takes_value
 			if idx + 1 >= len(tokens)
 				throw spec.MissingValueError().Format(
 					$'option {raw_token} requires a value'
@@ -620,13 +614,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			continue
 		endif
 
-		if spec isnot null_object
-			spec.Apply(ssh_options, term_options, '')
-		elseif !is_long
-			ssh_options->add($'-{name}')
-		else
-			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
-		endif
+		spec.Apply(ssh_options, term_options, '')
 		idx += 1
 	endwhile
 
