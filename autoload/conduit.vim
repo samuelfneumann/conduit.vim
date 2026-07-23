@@ -372,7 +372,6 @@ const ssh_option_specs: list<SshOption> = [
 	SshOption.new('Q', 'query'),
 	SshOption.new('R', 'remoteforward', true, true),
 	SshOption.new('S', 'controlpath'),
-	SshOption.new('W', 'stdioforward', true, true),
 	SshOption.new('w', 'tunnel', true, true),
 ]
 
@@ -588,6 +587,14 @@ def ParseConduitOpenArgs(args: string): dict<any>
 		elseif is_long && len(name) == 1
 			throw error.Error.InvalidConduitOption.Format(
 				$'long-form option "++{name}" must not be a single character; use "+{name}" for short options'
+			)
+		endif
+
+		# -W disables the remote command and terminal that Conduit requires.
+		# Reject it before unknown short options are passed through to ssh.
+		if !is_long && name ==# 'W'
+			throw error.Error.InvalidSshOption.Format(
+				$'ssh option "{raw_token}" is incompatible with Conduit'
 			)
 		endif
 
