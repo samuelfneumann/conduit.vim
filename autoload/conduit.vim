@@ -362,7 +362,7 @@ const ssh_option_specs: list<SshOption> = [
 	SshOption.new('F', 'config'),
 	SshOption.new('I', 'pkcs11'),
 	SshOption.new('i', 'identity'),
-	SshOption.new('J', 'jump'),
+	SshOption.new('J', 'proxyjump'),
 	SshOption.new('l', 'login'),
 	SshOption.new('L', 'localforward', true, true),
 	SshOption.new('m', 'mac'),
