@@ -125,8 +125,9 @@ By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the comm
 ### SSH Options
 
 `:Conduit open` and `:Conduit deploy` accept SSH flags before the destination
-host using either a one-character short form (`+X`) or a validated long form
-(`++name`). For example, these jump-host forms are equivalent:
+host using either a registered one-character short form (`+X`) or long form
+(`++name`). Both forms are validated, and unregistered option names are
+rejected. For example, these jump-host forms are equivalent:
 
 ```vim
 :Conduit open +J user1@host1 user2@host2

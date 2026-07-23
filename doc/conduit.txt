@@ -64,10 +64,9 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `++api=...`, `++kill=...`, and `++opencmd=...`.
 
         A short-form name must be exactly one character; a long-form name
-        must not be. Except for the explicitly unsupported `+W`, unlisted
-        short-form names such as `+v` pass through raw to ssh, while long-form
-        names are a closed, validated set. A bare `++` (or `--`) by itself
-        stops option parsing before the host.
+        must not be. Both forms are closed, validated sets: only the SSH and
+        Vim terminal options listed above are accepted. A bare `++` (or `--`)
+        by itself stops option parsing before the host.
 
 :Conduit deploy [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-deploy*
