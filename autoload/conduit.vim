@@ -564,8 +564,9 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	var ssh_options: list<string> = []
 	var term_options: dict<any> = {}
 	var idx = 0
-	# `+opt` (single leading plus) introduces a short-form ssh option (one
-	# character, e.g. `+R=...`); `++opt` introduces a long-form term option.
+	# `+x` and `++name` select short- and long-form syntax respectively; the
+	# resolved option determines whether it configures ssh or Vim's terminal.
+	# SSH options therefore accept long aliases such as `++port` and `++jump`.
 	# A bare `++` or `--` (alone) ends option-parsing.
 	while idx < len(tokens) && tokens[idx] =~# '^\(+\|--\)'
 		var raw_token = tokens[idx]
@@ -584,69 +585,51 @@ def ParseConduitOpenArgs(args: string): dict<any>
 		endif
 
 		const eq_idx = stridx(token, '=')
-		if eq_idx >= 0
-			const flag = token[: eq_idx - 1]
-			const val = token[eq_idx + 1 : ]
+		const has_eq = eq_idx >= 0
+		const name = has_eq ? token[: eq_idx - 1] : token
+		const inline_val = has_eq ? token[eq_idx + 1 :] : ''
 
-			if empty(flag) || empty(val)
-				throw error.Error.InvalidSshOption.Format('invalid ssh option')
-			endif
+		if empty(name) || (has_eq && empty(inline_val))
+			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
+		endif
 
-			if !is_long && len(flag) != 1
-				throw error.Error.InvalidSshOption.Format(
-					$'short ssh option "+{flag}" must be a single character; use "++{flag}" for long options'
-				)
-			elseif is_long && len(flag) == 1
-				throw error.Error.InvalidConduitOption.Format(
-					$'long option "++{flag}" must not be a single character; use "+{flag}" for short ssh options'
-				)
-			endif
+		if !is_long && len(name) != 1
+			throw error.Error.InvalidSshOption.Format(
+				$'short option "+{name}" must be a single character; use "++{name}" for long-form options'
+			)
+		elseif is_long && len(name) == 1
+			throw error.Error.InvalidConduitOption.Format(
+				$'long-form option "++{name}" must not be a single character; use "+{name}" for short options'
+			)
+		endif
 
-			if !is_long && index(ssh_opts_with_value, flag) >= 0
-				ssh_options->extend([$'-{flag}', val])
-			elseif is_long && index(term_opts_with_value, flag) >= 0
-				term_options[flag] = val
-			else
+		const lookup = is_long ? opts_by_long : opts_by_short
+		const spec: ConduitOption = get(lookup, name, null_object)
+
+		if has_eq
+			if spec is null_object || !spec.takes_value
 				throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 			endif
+			spec.Apply(ssh_options, term_options, inline_val)
 			idx += 1
 			continue
 		endif
 
-		if !is_long && len(token) != 1
-			throw error.Error.InvalidSshOption.Format(
-				$'short ssh option "+{token}" must be a single character; use "++{token}" for long options'
-			)
-		elseif is_long && len(token) == 1
-			throw error.Error.InvalidConduitOption.Format(
-				$'long option "++{token}" must not be a single character; use "+{token}" for short ssh options'
-			)
-		endif
-
-		if !is_long && index(ssh_opts_with_value, token) >= 0
+		if spec isnot null_object && spec.takes_value
 			if idx + 1 >= len(tokens)
-				throw error.Error.SshOptionRequiresValue.Format(
-					$'ssh option +{token} requires a value'
+				throw spec.MissingValueError().Format(
+					$'option {raw_token} requires a value'
 				)
 			endif
-			ssh_options->extend([$'-{token}', tokens[idx + 1]])
-			idx += 2
-			continue
-		elseif is_long && index(term_opts_with_value, token) >= 0
-			if idx + 1 >= len(tokens)
-				throw error.Error.TermOptionRequiresValue.Format(
-					$'term option ++{token} requires a value'
-				)
-			endif
-			term_options[token] = tokens[idx + 1]
+			spec.Apply(ssh_options, term_options, tokens[idx + 1])
 			idx += 2
 			continue
 		endif
 
-		if is_long && index(term_opts, token) >= 0
-			term_options[token] = ""
+		if spec isnot null_object
+			spec.Apply(ssh_options, term_options, '')
 		elseif !is_long
-			ssh_options->add($'-{token}')
+			ssh_options->add($'-{name}')
 		else
 			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 		endif
