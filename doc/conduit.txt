@@ -53,8 +53,8 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `+i` / `++identity`, `+J` / `++jump`, `+l` / `++login`,
         `+L` / `++localforward`, `+m` / `++mac`, `+O` / `++control`,
         `+o` / `++option`, `+p` / `++port`, `+Q` / `++query`,
-        `+R` / `++remoteforward`, `+S` / `++controlpath`,
-        `+W` / `++stdioforward`, and `+w` / `++tunnel`.
+        `+R` / `++remoteforward`, `+S` / `++controlpath`, and
+        `+w` / `++tunnel`.
         For example, `+p 2222` and `++port 2222` are equivalent, as are
         `+J user@bastion` and `++jump user@bastion`. See
         |conduit-forwarding| for how forwarding options are scoped.
@@ -65,9 +65,10 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `++api=...`, `++kill=...`, and `++opencmd=...`.
 
         A short-form name must be exactly one character; a long-form name
-        must not be. Unlisted short-form names such as `+v` pass through raw
-        to ssh, while long-form names are a closed, validated set. A bare
-        `++` (or `--`) by itself stops option parsing before the host.
+        must not be. Except for the explicitly unsupported `+W`, unlisted
+        short-form names such as `+v` pass through raw to ssh, while long-form
+        names are a closed, validated set. A bare `++` (or `--`) by itself
+        stops option parsing before the host.
 
 :Conduit deploy [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-deploy*
@@ -80,8 +81,8 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         |conduit-forwarding|.
 
                                                             *conduit-forwarding*
-SSH forwarding flags (`+L`, `+R`, `+D`, `+W`, `+w`) are only applied to the one
-new SSH session that a `:Conduit open` or `:Conduit deploy` call creates (the
+SSH forwarding flags (`+L`, `+R`, `+D`, `+w`) are only applied to the one new
+SSH session that a `:Conduit open` or `:Conduit deploy` call creates (the
 interactive terminal, or the deploy-only tunnel), not to Conduit's housekeeping
 SSH calls for that connection (the shared ControlMaster's own setup,
 connectivity checks, or background `scp`/`rsync` file transfers).
@@ -96,8 +97,11 @@ own tunnel(s) on top of the same authenticated master as a fresh multiplexed
 session. Different forwards open independent tunnels rather than conflicting,
 and `scp`/`rsync` transfers never see these flags at all.
 
-`+W` requests stdio forwarding, while `+w` requests tunnel-device forwarding;
-both receive the same session-only scoping as the port-forwarding flags.
+`+w` requests tunnel-device forwarding and receives the same session-only
+scoping as the port-forwarding flags.
+
+OpenSSH's `-W` stdio forwarding is not supported because it disables the remote
+command and terminal that Conduit requires.
 
 :Conduit exit {connection-key}                              *:Conduit-exit*
         Cleanly close the conduit session for {connection-key}, removing

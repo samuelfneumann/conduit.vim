@@ -143,16 +143,16 @@ options actually differ — e.g. a different jump host — does Conduit track it
 as a separate profile, keyed like `user@host:22-1a2b3c4d5e6f`. Use that key for
 `:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
 
-#### Forwarding flags (`+L`/`+R`/`+D`/`+W`/`+w`)
+#### Forwarding flags (`+L`/`+R`/`+D`/`+w`)
 
 Most `+` SSH options (like `+J`, `+i`, `+p`) are threaded through every SSH
 call Conduit makes for a connection — the shared ControlMaster, the reverse
 tunnel, file transfers, cleanup, everything.
 
-Forwarding flags are the exception: `+L`, `+R`, `+D`, `+W`, and `+w` are only
-applied to the *one new SSH session* your `:Conduit open`/`deploy` call creates
-(the interactive terminal, or the deploy-only background tunnel) — not to the
-shared ControlMaster's own setup, connectivity checks, or `scp`/`rsync` file
+Forwarding flags are the exception: `+L`, `+R`, `+D`, and `+w` are only applied
+to the *one new SSH session* your `:Conduit open`/`deploy` call creates (the
+interactive terminal, or the deploy-only background tunnel) — not to the shared
+ControlMaster's own setup, connectivity checks, or `scp`/`rsync` file
 transfers. This is deliberate:
 
 - The ControlMaster stays a plain, reusable connection, so opening a tunnel
@@ -171,8 +171,11 @@ transfers. This is deliberate:
 - `scp` doesn't understand `-L`/`-R` the way `ssh` does (`-R` means something
   else entirely for `scp`), so file transfers never see these flags.
 
-`+W` requests stdio forwarding, while `+w` requests tunnel-device forwarding;
-both receive the same session-only scoping as the port-forwarding flags.
+`+w` requests tunnel-device forwarding and receives the same session-only
+scoping as the port-forwarding flags.
+
+OpenSSH's `-W` stdio forwarding is not supported because it disables the remote
+command and terminal that Conduit requires.
 
 ### Advanced Fuzzy Uploads (`put`)
 
