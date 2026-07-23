@@ -366,7 +366,6 @@ const ssh_option_specs: list<SshOption> = [
 	SshOption.new('l', 'login'),
 	SshOption.new('L', 'localforward', true, true),
 	SshOption.new('m', 'mac'),
-	SshOption.new('O', 'control'),
 	SshOption.new('o', 'option'),
 	SshOption.new('p', 'port'),
 	SshOption.new('Q', 'query'),
@@ -590,9 +589,9 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			)
 		endif
 
-		# -W disables the remote command and terminal that Conduit requires.
-		# Reject it before unknown short options are passed through to ssh.
-		if !is_long && name ==# 'W'
+		# -O and -W replace the normal remote session that Conduit requires.
+		# Reject them before unknown short options are passed through to ssh.
+		if !is_long && index(['O', 'W'], name) >= 0
 			throw error.Error.InvalidSshOption.Format(
 				$'ssh option "{raw_token}" is incompatible with Conduit'
 			)
