@@ -200,10 +200,11 @@ export class Connection
 			return controlpath
 		endif
 
+		const control_options = GetNonForwardingSshOptions(this)
 		if this.port > 0
-			return $'/tmp/.vim-conduit-connection-{this.host}-{this.port}{GetProfileSuffix(this.ssh_options)}.sock'
+			return $'/tmp/.vim-conduit-connection-{this.host}-{this.port}{GetProfileSuffix(control_options)}.sock'
 		endif
-		return $'/tmp/.vim-conduit-connection-{this.host}{GetProfileSuffix(this.ssh_options)}.sock'
+		return $'/tmp/.vim-conduit-connection-{this.host}{GetProfileSuffix(control_options)}.sock'
 	enddef
 
 	def GetConnectTimeout(): number
