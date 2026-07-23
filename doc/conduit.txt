@@ -53,8 +53,7 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `+i` / `++identity`, `+J` / `++jump`, `+l` / `++login`,
         `+L` / `++localforward`, `+m` / `++mac`, `+o` / `++option`,
         `+p` / `++port`, `+Q` / `++query`,
-        `+R` / `++remoteforward`, `+S` / `++controlpath`, and
-        `+w` / `++tunnel`.
+        `+R` / `++remoteforward`, and `+w` / `++tunnel`.
         For example, `+p 2222` and `++port 2222` are equivalent, as are
         `+J user@bastion` and `++jump user@bastion`. See
         |conduit-forwarding| for how forwarding options are scoped.
