@@ -1638,7 +1638,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
     # redraw!
 
     if empty(args)
-        Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
+        Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
         return
     endif
@@ -1647,7 +1647,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		parsed = ParseConduitOpenArgs(args)
 	catch
-		Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
+		Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -1661,7 +1661,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		conn = MaybeAddEmptyConnection(host, port, ssh_options)
 	catch /E1013/
-        Warn($'Usage:  {prefix} [+SSHOPT|++TERMOPT ...] [user@]host[:port]')
+        Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -1991,7 +1991,7 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 
 	if cmd ==# "open" # :Conduit open HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit open [+SSHOPT|++TERMOPT ...] [user@]host[:port]"
+			echoerr "Usage:  Conduit open [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(deploy_only, curwin, mods, cmd_args)
 		endif
@@ -2005,7 +2005,7 @@ export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list
 
 	elseif cmd ==# "deploy" # :Conduit deploy HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit deploy [+SSHOPT|++TERMOPT ...] [user@]host[:port]"
+			echoerr "Usage:  Conduit deploy [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"
 		else
 			ConduitOpenCmd(true, false, '', cmd_args)
 		endif

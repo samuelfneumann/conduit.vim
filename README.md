@@ -97,7 +97,7 @@ Then, read the docs:
 :Conduit disconnect user@example.com
 ```
 
-`open` and `deploy` accept SSH options with the `+` prefix (and Vim terminal options with `++`), see [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
+`open` and `deploy` accept short-form options with `+` and long-form options with `++`; the option itself determines whether it configures SSH or Vim's terminal. See [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
 
 
 ### The `lvim` command
@@ -125,18 +125,17 @@ By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the comm
 ### SSH Options
 
 `:Conduit open` and `:Conduit deploy` accept SSH flags before the destination
-host using a single `+` prefix — one character, matching `ssh`'s own short
-options (`++` is reserved for the separate, multi-character Vim terminal
-options like `++curwin`; see `:help :Conduit-open`). The most useful case is
-jump hosts:
+host using either a one-character short form (`+X`) or a validated long form
+(`++name`). For example, these jump-host forms are equivalent:
 
 ```vim
 :Conduit open +J user1@host1 user2@host2
+:Conduit open ++jump user1@host1 user2@host2
 ```
 
 That maps to `ssh -J user1@host1 user2@host2`.
 
-Conduit keys each connection by host, port, and the effective `+` SSH options
+Conduit keys each connection by host, port, and the effective SSH options
 used to open it. Repeating `:Conduit open` for the same host+port+options just
 multiplexes through the existing SSH ControlMaster (no re-authentication, even
 under MFA) and attaches another terminal to it. Only when the effective SSH
