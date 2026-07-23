@@ -50,12 +50,12 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `+B` / `++bindinterface`, `+b` / `++bindaddress`,
         `+c` / `++cipher`, `+D` / `++dynamicforward`,
         `+E` / `++logfile`, `+F` / `++config`, `+I` / `++pkcs11`,
-        `+i` / `++identity`, `+J` / `++jump`, `+l` / `++login`,
+        `+i` / `++identity`, `+J` / `++proxyjump`, `+l` / `++login`,
         `+L` / `++localforward`, `+m` / `++mac`, `+o` / `++option`,
         `+p` / `++port`, `+Q` / `++query`,
         `+R` / `++remoteforward`, and `+w` / `++tunnel`.
         For example, `+p 2222` and `++port 2222` are equivalent, as are
-        `+J user@bastion` and `++jump user@bastion`. See
+        `+J user@bastion` and `++proxyjump user@bastion`. See
         |conduit-forwarding| for how forwarding options are scoped.
 
         Vim terminal options currently use long form: `++curwin`,
@@ -308,7 +308,7 @@ using either their short or long spelling:
 
 or equivalently:
 
-`:Conduit open ++jump user1@host1 user2@host2`
+`:Conduit open ++proxyjump user1@host1 user2@host2`
 
 This is translated to `ssh -J user1@host1 user2@host2` and applies to the
 entire Conduit session.

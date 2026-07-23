@@ -131,7 +131,7 @@ rejected. For example, these jump-host forms are equivalent:
 
 ```vim
 :Conduit open +J user1@host1 user2@host2
-:Conduit open ++jump user1@host1 user2@host2
+:Conduit open ++proxyjump user1@host1 user2@host2
 ```
 
 That maps to `ssh -J user1@host1 user2@host2`.

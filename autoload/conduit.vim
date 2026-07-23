@@ -551,7 +551,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	var idx = 0
 	# `+x` and `++name` select short- and long-form syntax respectively; the
 	# resolved option determines whether it configures ssh or Vim's terminal.
-	# SSH options therefore accept long aliases such as `++port` and `++jump`.
+	# SSH options therefore accept long aliases such as `++port` and `++proxyjump`.
 	# A bare `++` or `--` (alone) ends option-parsing.
 	while idx < len(tokens) && tokens[idx] =~# '^\(+\|--\)'
 		var raw_token = tokens[idx]
