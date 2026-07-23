@@ -200,10 +200,11 @@ export class Connection
 			return controlpath
 		endif
 
+		const control_options = GetNonForwardingSshOptions(this)
 		if this.port > 0
-			return $'/tmp/.vim-conduit-connection-{this.host}-{this.port}{GetProfileSuffix(this.ssh_options)}.sock'
+			return $'/tmp/.vim-conduit-connection-{this.host}-{this.port}{GetProfileSuffix(control_options)}.sock'
 		endif
-		return $'/tmp/.vim-conduit-connection-{this.host}{GetProfileSuffix(this.ssh_options)}.sock'
+		return $'/tmp/.vim-conduit-connection-{this.host}{GetProfileSuffix(control_options)}.sock'
 	enddef
 
 	def GetConnectTimeout(): number
@@ -361,17 +362,14 @@ const ssh_option_specs: list<SshOption> = [
 	SshOption.new('F', 'config'),
 	SshOption.new('I', 'pkcs11'),
 	SshOption.new('i', 'identity'),
-	SshOption.new('J', 'jump'),
+	SshOption.new('J', 'proxyjump'),
 	SshOption.new('l', 'login'),
 	SshOption.new('L', 'localforward', true, true),
 	SshOption.new('m', 'mac'),
-	SshOption.new('O', 'control'),
 	SshOption.new('o', 'option'),
 	SshOption.new('p', 'port'),
 	SshOption.new('Q', 'query'),
 	SshOption.new('R', 'remoteforward', true, true),
-	SshOption.new('S', 'controlpath'),
-	SshOption.new('W', 'stdioforward', true, true),
 	SshOption.new('w', 'tunnel', true, true),
 ]
 
@@ -553,7 +551,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 	var idx = 0
 	# `+x` and `++name` select short- and long-form syntax respectively; the
 	# resolved option determines whether it configures ssh or Vim's terminal.
-	# SSH options therefore accept long aliases such as `++port` and `++jump`.
+	# SSH options therefore accept long aliases such as `++port` and `++proxyjump`.
 	# A bare `++` or `--` (alone) ends option-parsing.
 	while idx < len(tokens) && tokens[idx] =~# '^\(+\|--\)'
 		var raw_token = tokens[idx]
@@ -592,9 +590,12 @@ def ParseConduitOpenArgs(args: string): dict<any>
 
 		const lookup = is_long ? opts_by_long : opts_by_short
 		const spec: ConduitOption = get(lookup, name, null_object)
+		if spec is null_object
+			throw error.Error.InvalidConduitOption.Format($'option {raw_token} is unknown')
+		endif
 
 		if has_eq
-			if spec is null_object || !spec.takes_value
+			if !spec.takes_value
 				throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
 			endif
 			spec.Apply(ssh_options, term_options, inline_val)
@@ -602,7 +603,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			continue
 		endif
 
-		if spec isnot null_object && spec.takes_value
+		if spec.takes_value
 			if idx + 1 >= len(tokens)
 				throw spec.MissingValueError().Format(
 					$'option {raw_token} requires a value'
@@ -613,13 +614,7 @@ def ParseConduitOpenArgs(args: string): dict<any>
 			continue
 		endif
 
-		if spec isnot null_object
-			spec.Apply(ssh_options, term_options, '')
-		elseif !is_long
-			ssh_options->add($'-{name}')
-		else
-			throw error.Error.InvalidConduitOption.Format($'invalid conduit option "{raw_token}"')
-		endif
+		spec.Apply(ssh_options, term_options, '')
 		idx += 1
 	endwhile
 
@@ -1647,7 +1642,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		parsed = ParseConduitOpenArgs(args)
 	catch
-		Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
+		Warn(v:exception)
 		notifier.Dismiss(notif)
 		return
 	endtry

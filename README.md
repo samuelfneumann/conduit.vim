@@ -125,12 +125,13 @@ By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the comm
 ### SSH Options
 
 `:Conduit open` and `:Conduit deploy` accept SSH flags before the destination
-host using either a one-character short form (`+X`) or a validated long form
-(`++name`). For example, these jump-host forms are equivalent:
+host using either a registered one-character short form (`+X`) or long form
+(`++name`). Both forms are validated, and unregistered option names are
+rejected. For example, these jump-host forms are equivalent:
 
 ```vim
 :Conduit open +J user1@host1 user2@host2
-:Conduit open ++jump user1@host1 user2@host2
+:Conduit open ++proxyjump user1@host1 user2@host2
 ```
 
 That maps to `ssh -J user1@host1 user2@host2`.
@@ -143,20 +144,24 @@ options actually differ — e.g. a different jump host — does Conduit track it
 as a separate profile, keyed like `user@host:22-1a2b3c4d5e6f`. Use that key for
 `:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
 
-#### Forwarding flags (`-L`/`-R`/`-D`/`-w`)
+#### Forwarding flags (`+L`/`+R`/`+D`/`+w`)
 
 Most `+` SSH options (like `+J`, `+i`, `+p`) are threaded through every SSH
 call Conduit makes for a connection — the shared ControlMaster, the reverse
 tunnel, file transfers, cleanup, everything.
 
-Port/socket forwarding flags are the exception: `+L`, `+R`, `+D`, and `+w` are
-only applied to the *one new SSH session* your `:Conduit open`/`deploy` call
-creates (the interactive terminal, or the deploy-only background tunnel) —
-not to the shared ControlMaster's own setup, connectivity checks, or
-`scp`/`rsync` file transfers. This is deliberate:
+Forwarding flags are the exception: `+L`, `+R`, `+D`, and `+w` are only applied
+to the *one new SSH session* your `:Conduit open`/`deploy` call creates (the
+interactive terminal, or the deploy-only background tunnel) — not to the shared
+ControlMaster's own setup, connectivity checks, or `scp`/`rsync` file
+transfers. This is deliberate:
 
 - The ControlMaster stays a plain, reusable connection, so opening a tunnel
   once doesn't leave it dangling on every future command for that connection.
+  Forwarding options do not affect either a configured ControlPath or
+  Conduit's fallback ControlPath; the fallback remains keyed by the
+  non-forwarding SSH options so different forwards reuse the same authenticated
+  master.
 - Each `:Conduit open`/`deploy` call can carry its own distinct forward
   without conflicting with another session's, since ssh multiplexes them as
   independent sessions on top of the same authenticated master:
@@ -166,6 +171,12 @@ not to the shared ControlMaster's own setup, connectivity checks, or
   ```
 - `scp` doesn't understand `-L`/`-R` the way `ssh` does (`-R` means something
   else entirely for `scp`), so file transfers never see these flags.
+
+`+w` requests tunnel-device forwarding and receives the same session-only
+scoping as the port-forwarding flags.
+
+OpenSSH's `-W` stdio forwarding is not supported because it disables the remote
+command and terminal that Conduit requires.
 
 ### Advanced Fuzzy Uploads (`put`)
 
