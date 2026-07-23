@@ -50,6 +50,7 @@ const open_file_ops = [
 # All supported `lvim` ops
 const all_ops = ["put", "get", "mget", "mput"]->extend(open_file_ops)->extend(modifiers)
 
+# ── Classes & Core Types ─────────────────────────────────────────────────────
 abstract class ConduitOption
 	var takes_value: bool
 	var long: string = ''
@@ -113,67 +114,6 @@ class TermOption extends ConduitOption
 	enddef
 endclass
 
-const ssh_option_specs: list<SshOption> = [
-	SshOption.new('B', 'bindinterface'),
-	SshOption.new('b', 'bindaddress'),
-	SshOption.new('c', 'cipher'),
-	SshOption.new('D', 'dynamicforward', true, true),
-	SshOption.new('E', 'logfile'),
-	SshOption.new('F', 'config'),
-	SshOption.new('I', 'pkcs11'),
-	SshOption.new('i', 'identity'),
-	SshOption.new('J', 'jump'),
-	SshOption.new('l', 'login'),
-	SshOption.new('L', 'localforward', true, true),
-	SshOption.new('m', 'mac'),
-	SshOption.new('O', 'control'),
-	SshOption.new('o', 'option'),
-	SshOption.new('p', 'port'),
-	SshOption.new('Q', 'query'),
-	SshOption.new('R', 'remoteforward', true, true),
-	SshOption.new('S', 'controlpath'),
-	SshOption.new('W', 'stdioforward', true, true),
-	SshOption.new('w', 'tunnel', true, true),
-]
-
-const term_option_specs: list<TermOption> = [
-	TermOption.new('vertical'), TermOption.new('close'), TermOption.new('noclose'),
-	TermOption.new('curwin'), TermOption.new('open'), TermOption.new('hidden'),
-	TermOption.new('norestore'), TermOption.new('shell'),
-	TermOption.new('rows', true), TermOption.new('cols', true), TermOption.new('eof', true),
-	TermOption.new('api', true), TermOption.new('kill', true), TermOption.new('opencmd', true),
-]
-
-var all_option_specs: list<ConduitOption> = []
-all_option_specs->extend(ssh_option_specs)
-all_option_specs->extend(term_option_specs)
-
-var opts_by_short: dict<ConduitOption> = {}
-var opts_by_long: dict<ConduitOption> = {}
-for spec in all_option_specs
-	if !empty(spec.long) | opts_by_long[spec.long] = spec | endif
-	const short = spec.ShortName()
-	if !empty(short) | opts_by_short[short] = spec | endif
-endfor
-
-# Compatibility views for parsing and completion while those consumers are
-# migrated to the option catalog.
-var ssh_opts_with_value: list<string> = []
-var term_opts: list<string> = []
-var term_opts_with_value: list<string> = []
-for spec in ssh_option_specs
-	if spec.takes_value | ssh_opts_with_value->add(spec.ShortName()) | endif
-endfor
-for spec in term_option_specs
-	if spec.takes_value
-		term_opts_with_value->add(spec.long)
-	else
-		term_opts->add(spec.long)
-	endif
-endfor
-
-
-# ── Classes & Core Types ─────────────────────────────────────────────────────
 export class Connection
 	static var host2shell: dict<string> = g:conduit_host2shell
 	static var fallback_shell: string = g:conduit_fallback_shell
@@ -410,6 +350,53 @@ export class Op
 endclass
 
 # ── Connection & State Management ────────────────────────────────────────────
+
+# List of all Conduit SSH options
+const ssh_option_specs: list<SshOption> = [
+	SshOption.new('B', 'bindinterface'),
+	SshOption.new('b', 'bindaddress'),
+	SshOption.new('c', 'cipher'),
+	SshOption.new('D', 'dynamicforward', true, true),
+	SshOption.new('E', 'logfile'),
+	SshOption.new('F', 'config'),
+	SshOption.new('I', 'pkcs11'),
+	SshOption.new('i', 'identity'),
+	SshOption.new('J', 'jump'),
+	SshOption.new('l', 'login'),
+	SshOption.new('L', 'localforward', true, true),
+	SshOption.new('m', 'mac'),
+	SshOption.new('O', 'control'),
+	SshOption.new('o', 'option'),
+	SshOption.new('p', 'port'),
+	SshOption.new('Q', 'query'),
+	SshOption.new('R', 'remoteforward', true, true),
+	SshOption.new('S', 'controlpath'),
+	SshOption.new('W', 'stdioforward', true, true),
+	SshOption.new('w', 'tunnel', true, true),
+]
+
+# List of all Conduit terminal options
+const term_option_specs: list<TermOption> = [
+	TermOption.new('vertical'), TermOption.new('close'), TermOption.new('noclose'),
+	TermOption.new('curwin'), TermOption.new('open'), TermOption.new('hidden'),
+	TermOption.new('norestore'), TermOption.new('shell'),
+	TermOption.new('rows', true), TermOption.new('cols', true), TermOption.new('eof', true),
+	TermOption.new('api', true), TermOption.new('kill', true), TermOption.new('opencmd', true),
+]
+
+# Stores all ConduitOptions
+var all_option_specs: list<ConduitOption> = []
+all_option_specs->extend(ssh_option_specs)
+all_option_specs->extend(term_option_specs)
+
+# Stores short/long option text -> ConduitOption
+var opts_by_short: dict<ConduitOption> = {}
+var opts_by_long: dict<ConduitOption> = {}
+for spec in all_option_specs
+	if !empty(spec.long) | opts_by_long[spec.long] = spec | endif
+	const short = spec.ShortName()
+	if !empty(short) | opts_by_short[short] = spec | endif
+endfor
 
 # Stores profile key -> Connections
 var connections: dict<Connection> = {}
@@ -2181,10 +2168,11 @@ def MaybeRemoveOptions(CmdLine: string, suggestions: list<string>): list<string>
 enddef
 
 export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
-	# Short-form (`+`) options are single-character ssh flags; long-form
-	# (`++`) options are the (multi-character) term options.
-	var short_opts = mapnew(ssh_opts_with_value, (_, v) => v .. '=')
-	var long_opts = term_opts + mapnew(term_opts_with_value, (_, v) => v .. '=')
+	var short_opts = copy(ssh_option_specs)
+		->filter((_, spec) => spec.takes_value)
+		->map((_, spec) => spec.ShortName() .. '=')
+	var long_opts = all_option_specs
+		->mapnew((_, spec) => spec.long .. (spec.takes_value ? '=' : ''))
 
 	var suggestions: list<string>
 	if empty(ArgLead)
