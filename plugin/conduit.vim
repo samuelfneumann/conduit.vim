@@ -17,6 +17,7 @@ g:conduit_fallback_shell = get(g:, 'conduit_fallback_shell', "bash")
 g:conduit_host2shell = get(g:, 'conduit_host2shell', {})
 g:conduit_default_control_persist = get(g:, 'conduit_default_control_persist', "60m")
 g:conduit_host2sshoptions = get(g:, 'conduit_host2sshoptions', {})
+g:conduit_run_auto_open_quickfix = get(g:, 'conduit_run_auto_open_quickfix', true)
 
 g:conduit_put_ops = []
 g:conduit_get_ops = []
@@ -31,7 +32,15 @@ def EchoDeprecated(msg: string)
 	echohl clear
 enddef
 
-command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitCompl  Conduit conduit.ConduitCmd(false, !empty(expand("<bang>")), <q-mods>, <f-args>)
+command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitCompl Conduit {
+	conduit.ConduitDispatch(
+		false,
+		!empty(expand("<bang>")),
+		<q-mods>,
+		<q-args>,
+		[<f-args>],
+	)
+}
 
 command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitHostAndOptionCompl ConduitOpen {
 	EchoDeprecated(":ConduitOpen is deprecated and will be removed in a future version of Conduit. Use `:Conduit open`") 

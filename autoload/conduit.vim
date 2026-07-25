@@ -365,6 +365,70 @@ export class Op
 	enddef
 endclass
 
+class RunSpec
+	var command: string
+	var cwd: string
+	var efm: string
+
+	def new(command: string, cwd: string, efm: string)
+		this.command = command
+		this.cwd = cwd
+		this.efm = efm
+	enddef
+endclass
+
+class RunTask
+	var id: number
+	var conn_key: string
+	var job: job
+	var command: string
+	var requested_cwd: string
+	var resolved_cwd: string
+	var efm: string
+	var qf_id: number
+	var notif: number
+	var line_count: number
+	var cancelled: bool
+
+	def new(
+		id: number,
+		conn_key: string,
+		command: string,
+		requested_cwd: string,
+		efm: string,
+		qf_id: number,
+		notif: number,
+	)
+		this.id = id
+		this.conn_key = conn_key
+		this.job = null_job
+		this.command = command
+		this.requested_cwd = requested_cwd
+		this.resolved_cwd = ''
+		this.efm = efm
+		this.qf_id = qf_id
+		this.notif = notif
+		this.line_count = 0
+		this.cancelled = false
+	enddef
+
+	def SetJob(j: job)
+		this.job = j
+	enddef
+
+	def SetResolvedCwd(cwd: string)
+		this.resolved_cwd = cwd
+	enddef
+
+	def AddLine()
+		this.line_count += 1
+	enddef
+
+	def Cancel()
+		this.cancelled = true
+	enddef
+endclass
+
 # ── Connection & State Management ────────────────────────────────────────────
 
 # List of all Conduit SSH options
@@ -413,6 +477,10 @@ endfor
 
 # Stores profile key -> Connections
 var connections: dict<Connection> = {}
+var run_tasks: list<RunTask> = []
+var last_runs: dict<RunSpec> = {}
+var remote_buffers: dict<number> = {}
+var next_run_id = 1
 
 def GetConnectionsDictKey(conn: Connection): string
 	return conn.GetProfileKey()
@@ -931,6 +999,109 @@ def GetNetrwRsyncCmd(conn: Connection): string
 	return ShellJoin(parts)
 enddef
 
+def RemoteBufferFor(conn: Connection, remote_path: string): number
+	const path = simplify(remote_path)
+	const registry_key = conn.GetProfileKey() .. "\x1f" .. path
+	if remote_buffers->has_key(registry_key) && bufexists(remote_buffers[registry_key])
+		return remote_buffers[registry_key]
+	endif
+
+	const name = 'conduit-file://' .. sha256(registry_key)
+	const bufnr = bufadd(name)
+	SetRemoteBufferMetadata(bufnr, conn, path)
+	remote_buffers[registry_key] = bufnr
+	return bufnr
+enddef
+
+def GetRemoteBufferConnection(): Connection
+	const key = getbufvar(bufnr(), 'conduit_profile_key', '')
+	if empty(key) || !connections->has_key(key)
+		throw error.Error.Misc.Format('remote buffer has no Conduit connection')
+	endif
+	return connections[key]
+enddef
+
+export def ConduitRemoteReadCmd()
+	var local_file = ''
+	try
+		const conn = GetRemoteBufferConnection()
+		if conn.ConduitClosed()
+			throw error.Error.Misc.Format($'connection "{conn.GetProfileKey()}" is not active')
+		endif
+
+		const remote_path = getbufvar(bufnr(), 'conduit_remote_path', '')
+		local_file = tempname()
+		var scp_cmd = [
+			'scp',
+			'-q',
+			'-o', $'ControlPath={conn.GetConduitControlPath()}',
+		]
+		scp_cmd->extend(GetScpArgs(conn))
+		scp_cmd->extend([$'{conn.host}:{remote_path}', local_file])
+		system(ShellJoin(scp_cmd))
+		if v:shell_error != 0
+			throw error.Error.Misc.Format($'scp exited with error {v:shell_error}')
+		endif
+
+		var lines = readfile(local_file, 'b')
+		const has_final_eol = !empty(lines) && lines[-1] ==# ''
+		if has_final_eol | lines->remove(-1) | endif
+		setlocal modifiable
+		if empty(lines)
+			setline(1, '')
+		else
+			setline(1, lines)
+		endif
+		if line('$') > max([1, len(lines)])
+			deletebufline(bufnr(), max([1, len(lines)]) + 1, '$')
+		endif
+		setlocal buftype=acwrite
+		setlocal noswapfile
+		if has_final_eol | setlocal endofline | else | setlocal noendofline | endif
+		setlocal nomodified
+		execute 'doautocmd <nomodeline> filetypedetect BufRead '
+			.. fnameescape(remote_path)
+		execute 'doautocmd <nomodeline> BufReadPost ' .. fnameescape(remote_path)
+	catch
+		Warn($'Failed to read remote file (error: {v:exception})')
+	finally
+		if !empty(local_file) | delete(local_file) | endif
+	endtry
+enddef
+
+export def ConduitRemoteWriteCmd()
+	const was_modified = &modified
+	var local_file = ''
+	try
+		const conn = GetRemoteBufferConnection()
+		if conn.ConduitClosed()
+			throw error.Error.Misc.Format($'connection "{conn.GetProfileKey()}" is not active')
+		endif
+
+		const remote_path = getbufvar(bufnr(), 'conduit_remote_path', '')
+		local_file = tempname()
+		writefile(getline(1, '$'), local_file, &endofline ? '' : 'b')
+		var scp_cmd = [
+			'scp',
+			'-q',
+			'-o', $'ControlPath={conn.GetConduitControlPath()}',
+		]
+		scp_cmd->extend(GetScpArgs(conn))
+		scp_cmd->extend([local_file, $'{conn.host}:{remote_path}'])
+		system(ShellJoin(scp_cmd))
+		if v:shell_error != 0
+			throw error.Error.Misc.Format($'scp exited with error {v:shell_error}')
+		endif
+		setlocal nomodified
+		execute 'doautocmd <nomodeline> BufWritePost ' .. fnameescape(remote_path)
+	catch
+		if was_modified | setlocal modified | endif
+		Warn($'Failed to write remote file (error: {v:exception})')
+	finally
+		if !empty(local_file) | delete(local_file) | endif
+	endtry
+enddef
+
 # Builds the netrw-style `scp://HOST/PATH` URL used to name a buffer opened
 # via `lvim`/OpenFile, so netrw can locate and open it.
 def GetScpTarget(conn: Connection, remote_path: string): string
@@ -981,86 +1152,6 @@ enddef
 def SetRemoteBufferMetadata(bufnr: number, conn: Connection, remote_path: string)
 	setbufvar(bufnr, 'conduit_profile_key', conn.GetProfileKey())
 	setbufvar(bufnr, 'conduit_remote_path', remote_path)
-enddef
-
-# Returns the (lazily created) buffer backing `remote_path` on `conn`, keyed
-# by connection profile + path so the same remote file always reuses one
-# buffer. Named as a content hash (rather than the scp:// URL OpenFile()
-# uses) since these buffers are only ever reached by jumping from a run's
-# quickfix entries, never opened directly by the user.
-def RemoteBufferFor(conn: Connection, remote_path: string): number
-	const path = simplify(remote_path)
-	const registry_key = conn.GetProfileKey() .. "\x1f" .. path
-	if remote_buffers->has_key(registry_key) && bufexists(remote_buffers[registry_key])
-		return remote_buffers[registry_key]
-	endif
-
-	const name = 'conduit-file://' .. sha256(registry_key)
-	const bufnr = bufadd(name)
-	SetRemoteBufferMetadata(bufnr, conn, path)
-	remote_buffers[registry_key] = bufnr
-	return bufnr
-enddef
-
-# Resolves the current buffer's Conduit connection, for use inside the
-# BufReadCmd/BufWriteCmd autocmds registered on conduit-file:// buffers.
-def GetRemoteBufferConnection(): Connection
-	const key = getbufvar(bufnr(), 'conduit_profile_key', '')
-	if empty(key) || !connections->has_key(key)
-		throw error.Error.Misc.Format('remote buffer has no Conduit connection')
-	endif
-	return connections[key]
-enddef
-
-# BufReadCmd for conduit-file:// buffers: scp's the remote path down to a
-# temp file over the buffer's connection profile and loads it in place,
-# preserving trailing-EOL state so ConduitRemoteWriteCmd() can round-trip it.
-export def ConduitRemoteReadCmd()
-	var local_file = ''
-	try
-		const conn = GetRemoteBufferConnection()
-		if conn.ConduitClosed()
-			throw error.Error.Misc.Format($'connection "{conn.GetProfileKey()}" is not active')
-		endif
-
-		const remote_path = getbufvar(bufnr(), 'conduit_remote_path', '')
-		local_file = tempname()
-		var scp_cmd = [
-			'scp',
-			'-q',
-			'-o', $'ControlPath={conn.GetConduitControlPath()}',
-		]
-		scp_cmd->extend(GetScpArgs(conn))
-		scp_cmd->extend([$'{conn.host}:{remote_path}', local_file])
-		system(ShellJoin(scp_cmd))
-		if v:shell_error != 0
-			throw error.Error.Misc.Format($'scp exited with error {v:shell_error}')
-		endif
-
-		var lines = readfile(local_file, 'b')
-		const has_final_eol = !empty(lines) && lines[-1] ==# ''
-		if has_final_eol | lines->remove(-1) | endif
-		setlocal modifiable
-		if empty(lines)
-			setline(1, '')
-		else
-			setline(1, lines)
-		endif
-		if line('$') > max([1, len(lines)])
-			deletebufline(bufnr(), max([1, len(lines)]) + 1, '$')
-		endif
-		setlocal buftype=acwrite
-		setlocal noswapfile
-		if has_final_eol | setlocal endofline | else | setlocal noendofline | endif
-		setlocal nomodified
-		execute 'doautocmd <nomodeline> filetypedetect BufRead '
-			.. fnameescape(remote_path)
-		execute 'doautocmd <nomodeline> BufReadPost ' .. fnameescape(remote_path)
-	catch
-		Warn($'Failed to read remote file (error: {v:exception})')
-	finally
-		if !empty(local_file) | delete(local_file) | endif
-	endtry
 enddef
 
 # BufWriteCmd for conduit-file:// buffers: writes the buffer to a temp file
@@ -1879,6 +1970,413 @@ def Warn(msg: string)
 	endif
 enddef
 
+# ── Remote Task Runner ───────────────────────────────────────────────────────
+
+def NextRunToken(raw: string, start: number): tuple<string, number>
+	var pos = start
+	while pos < strlen(raw) && raw[pos] =~# '\s'
+		pos += 1
+	endwhile
+
+	var token = ''
+	while pos < strlen(raw) && raw[pos] !~# '\s'
+		if raw[pos] ==# '\' && pos + 1 < strlen(raw)
+			token ..= raw[pos + 1]
+			pos += 2
+		else
+			token ..= raw[pos]
+			pos += 1
+		endif
+	endwhile
+	return (token, pos)
+enddef
+
+export def ParseConduitRunArgs(raw: string, bang: bool): dict<string>
+	var pos = 0
+	var cwd = ''
+	var token: string
+	[token, pos] = NextRunToken(raw, pos)
+
+	if bang
+		if empty(token) || token =~# '^+'
+			throw error.Error.InvalidConduitOption.Format(
+				'Usage: Conduit! run [connection-key]',
+			)
+		endif
+		var trailing: string
+		[trailing, pos] = NextRunToken(raw, pos)
+		if !empty(trailing)
+			throw error.Error.InvalidConduitCommand.Format(
+				'Conduit! run only accepts a connection key',
+			)
+		endif
+		return {connection: token, command: '', cwd: ''}
+	endif
+
+	while token =~# '^+'
+		if token =~# '^++cwd='
+			if !empty(cwd) || token ==# '++cwd='
+				throw error.Error.InvalidConduitOption.Format(
+					'++cwd requires one non-empty value',
+				)
+			endif
+			cwd = token[len('++cwd=') : ]
+		else
+			throw error.Error.InvalidConduitOption.Format(
+				$'option "{token}" is unknown',
+			)
+		endif
+		[token, pos] = NextRunToken(raw, pos)
+	endwhile
+
+	if empty(token)
+		throw error.Error.MissingHost.Format('missing connection key')
+	endif
+
+	const command = trim(strpart(raw, pos))
+	if empty(command)
+		throw error.Error.InvalidExecuteCommand.Format('missing remote command')
+	endif
+
+	return {connection: token, command: command, cwd: cwd}
+enddef
+
+def CurrentRemoteCwd(conn: Connection): string
+	const bufnr = bufnr()
+	if getbufvar(bufnr, 'conduit_profile_key', '') !=# conn.GetProfileKey()
+		return ''
+	endif
+	const remote_path = getbufvar(bufnr, 'conduit_remote_path', '')
+	return empty(remote_path) ? '' : fnamemodify(remote_path, ':h')
+enddef
+
+def RunTaskContext(task: RunTask, exit_code: number = -999): dict<any>
+	return {
+		conduit: 'run',
+		task_id: task.id,
+		connection: task.conn_key,
+		command: task.command,
+		cwd: empty(task.resolved_cwd) ? task.requested_cwd : task.resolved_cwd,
+		exit_code: exit_code,
+	}
+enddef
+
+def NormalizeRunQuickfix(task: RunTask)
+	if empty(task.resolved_cwd) | return | endif
+
+	const qf = getqflist({id: task.qf_id, items: 0, title: 0})
+	var items: list<dict<any>> = deepcopy(qf.items)
+	var changed = false
+	for item in items
+		const item_bufnr = get(item, 'bufnr', 0)
+		if item_bufnr <= 0 | continue | endif
+		const name = bufname(item_bufnr)
+		if empty(name) || name =~# '^conduit-file://' || name =~# '^\a\+://'
+			continue
+		endif
+
+		const remote_path = name =~# '^/'
+			? simplify(name)
+			: simplify(task.resolved_cwd .. '/' .. name)
+		item.bufnr = RemoteBufferFor(connections[task.conn_key], remote_path)
+		if item->has_key('filename') | item->remove('filename') | endif
+		changed = true
+	endfor
+
+	if changed
+		setqflist([], 'r', {
+			id: task.qf_id,
+			items: items,
+			title: qf.title,
+			context: RunTaskContext(task),
+		})
+	endif
+enddef
+
+def PromoteRunFileEntries(task: RunTask)
+	if empty(task.resolved_cwd) || !connections->has_key(task.conn_key)
+		return
+	endif
+
+	const qf = getqflist({id: task.qf_id, items: 0, title: 0})
+	var items: list<dict<any>> = deepcopy(qf.items)
+	if empty(items) | return | endif
+	var item_paths: dict<string> = {}
+	var checks: list<string> = []
+	for i in range(len(items))
+		const item = items[i]
+		if get(item, 'valid', 0) || get(item, 'bufnr', 0) > 0
+			continue
+		endif
+
+		const text = trim(get(item, 'text', ''))
+		if empty(text) || strlen(text) > 4096 || text =~# '[\r\n]'
+			continue
+		endif
+		const remote_path = text =~# '^/'
+			? simplify(text)
+			: simplify(task.resolved_cwd .. '/' .. text)
+		item_paths[string(i)] = remote_path
+		checks->add(
+			$'[ -f {shellescape(remote_path)} ] && printf "%s\n" {shellescape(string(i))}',
+		)
+	endfor
+	if empty(checks) | return | endif
+
+	const conn = connections[task.conn_key]
+	var existing: list<string> = []
+	var batch_start = 0
+	while batch_start < len(checks)
+		const batch_end = min([batch_start + 199, len(checks) - 1])
+		existing->extend(systemlist(GetSshCommandString(
+			conn,
+			['-S', conn.GetConduitControlPath()],
+			[': CONDUIT_FILE_CHECK; ' .. checks[batch_start : batch_end]->join('; ')],
+		)))
+		batch_start = batch_end + 1
+	endwhile
+	var changed = false
+	for index_text in existing
+		const index = str2nr(index_text)
+		const key = string(index)
+		if !item_paths->has_key(key) || index < 0 || index >= len(items)
+			continue
+		endif
+		items[index].bufnr = RemoteBufferFor(conn, item_paths[key])
+		items[index].lnum = max([1, get(items[index], 'lnum', 0)])
+		items[index].col = max([1, get(items[index], 'col', 0)])
+		items[index].valid = 1
+		changed = true
+	endfor
+
+	if changed
+		setqflist([], 'r', {
+			id: task.qf_id,
+			items: items,
+			title: qf.title,
+			context: RunTaskContext(task),
+		})
+	endif
+enddef
+
+def AppendRunOutput(task: RunTask, line: string)
+	task.AddLine()
+	setqflist([], 'a', {
+		id: task.qf_id,
+		lines: [line],
+		efm: task.efm,
+	})
+	NormalizeRunQuickfix(task)
+enddef
+
+def RunControlPrefix(task: RunTask): string
+	return $"\x1eCONDUIT_CWD_{task.id}:"
+enddef
+
+def OnRunLine(task: RunTask, line: string)
+	const prefix = RunControlPrefix(task)
+	const start = stridx(line, prefix)
+	const finish = stridx(line, "\x1f")
+	if start >= 0 && finish > start
+		task.SetResolvedCwd(strpart(
+			line,
+			start + strlen(prefix),
+			finish - start - strlen(prefix),
+		))
+		NormalizeRunQuickfix(task)
+		const remainder = strpart(line, finish + 1)
+		if !empty(remainder) | AppendRunOutput(task, remainder) | endif
+		return
+	endif
+	AppendRunOutput(task, line)
+enddef
+
+def RunAutoOpenQuickfix(): bool
+	const value = get(g:, 'conduit_run_auto_open_quickfix', true)
+	if type(value) != v:t_bool
+		Warn('g:conduit_run_auto_open_quickfix must be a boolean; using true')
+		return true
+	endif
+	return value
+enddef
+
+def FinishRunTask(task: RunTask, code: number)
+	const idx = run_tasks->index(task)
+	if idx >= 0 | run_tasks->remove(idx) | endif
+
+	last_runs[task.conn_key] = RunSpec.new(
+		task.command,
+		empty(task.resolved_cwd) ? task.requested_cwd : task.resolved_cwd,
+		task.efm,
+	)
+	PromoteRunFileEntries(task)
+	NormalizeRunQuickfix(task)
+	const qf = getqflist({id: task.qf_id, items: 0, nr: 0, title: 0})
+	const entry_count = len(qf.items)
+	const valid_count = qf.items
+		->copy()
+		->filter((_, item) => get(item, 'valid', 0))
+		->len()
+	const current_id = getqflist({id: 0}).id
+	const can_open = RunAutoOpenQuickfix() && current_id == task.qf_id
+	if can_open
+		silent! cwindow
+	endif
+
+	var state: string
+	var timeout: number
+	if task.cancelled || code == -1
+		state = 'stopped'
+		timeout = GetFailureTimeout()
+	elseif code == 0
+		state = 'finished'
+		timeout = GetSuccessTimeout()
+	else
+		state = $'failed (error: {code})'
+		timeout = GetFailureTimeout()
+	endif
+
+	var entry_label = entry_count == 1 ? 'entry' : 'entries'
+	var msg = $'{task.command}: {state}; {entry_count} quickfix {entry_label}'
+	if valid_count != entry_count
+		msg ..= $' ({valid_count} jumpable)'
+	endif
+	if task.line_count > 0 && !can_open
+		msg ..= $' in list #{qf.nr} (:copen)'
+	endif
+	notifier.StopLoading(
+		task.notif,
+		(task.cancelled || code != 0 ? '‹×› ' : '‹✓› ') .. msg,
+		false,
+		timeout,
+	)
+
+	setqflist([], 'a', {
+		id: task.qf_id,
+		title: qf.title,
+		context: RunTaskContext(task, code),
+	})
+	redraw
+enddef
+
+def RemoteCdCommand(cwd: string): string
+	if empty(cwd) || cwd ==# '~'
+		return 'cd'
+	elseif stridx(cwd, '~/') == 0
+		return 'cd -- "$HOME"/' .. shellescape(cwd[2 : ])
+	endif
+	return 'cd -- ' .. shellescape(cwd)
+enddef
+
+def StartRunTask(conn: Connection, spec: RunSpec)
+	const id = next_run_id
+	next_run_id += 1
+	const title = $'[Conduit run {conn.GetProfileKey()}] {spec.command}'
+	setqflist([], ' ', {
+		title: title,
+		context: {
+			conduit: 'run',
+			task_id: id,
+			connection: conn.GetProfileKey(),
+			command: spec.command,
+			cwd: spec.cwd,
+		},
+	})
+	const qf = getqflist({id: 0})
+	const notif = notifier.StartLoading(
+		spec.command,
+		{prefix: '[run]', subprefix: $'[{conn.GetProfileKey()}]'},
+	)
+	const task = RunTask.new(
+		id,
+		conn.GetProfileKey(),
+		spec.command,
+		spec.cwd,
+		spec.efm,
+		qf.id,
+		notif,
+	)
+
+	const printf_cmd = "printf '\\036CONDUIT_CWD_" .. id
+		.. ":%s\\037\\n' \"$PWD\""
+	const remote_cmd = RemoteCdCommand(spec.cwd)
+		.. ' && ' .. printf_cmd
+		.. ' && { ' .. spec.command .. '; }'
+	if g:conduit_verbose | echom 'Conduit(sh/run):' remote_cmd | endif
+
+	task.SetJob(job_start(
+		GetSshCommandArgs(
+			conn,
+			['-S', conn.GetConduitControlPath()],
+			[remote_cmd],
+		),
+		{
+			out_io: 'pipe',
+			out_mode: 'nl',
+			err_io: 'out',
+			out_cb: (_, line: string) => OnRunLine(task, line),
+			exit_cb: (_, code) => FinishRunTask(task, code),
+		},
+	))
+	if job_status(task.job) ==# 'fail'
+		notifier.StopLoading(
+			notif,
+			$'‹×› Could not start remote task on {conn.GetProfileKey()}',
+			false,
+			GetFailureTimeout(),
+		)
+		setqflist([], 'a', {
+			id: task.qf_id,
+			context: RunTaskContext(task, -2),
+		})
+	else
+		run_tasks->add(task)
+	endif
+enddef
+
+export def ConduitRunCmd(bang: bool, raw: string)
+	var parsed: dict<string>
+	try
+		parsed = ParseConduitRunArgs(raw, bang)
+	catch
+		Warn(v:exception)
+		return
+	endtry
+
+	const key = ResolveConnectionKey(parsed.connection)
+	if empty(key)
+		Warn($'No active connection "{parsed.connection}"')
+		return
+	endif
+	const conn = connections[key]
+	if conn.ConduitClosed()
+		Warn($'Connection "{key}" is not active')
+		return
+	endif
+
+	if bang
+		if !last_runs->has_key(key)
+			Warn($'No previous run for "{key}"')
+			return
+		endif
+		const previous = last_runs[key]
+		for task in run_tasks
+			if task.conn_key ==# key
+					&& task.command ==# previous.command
+					&& (task.resolved_cwd ==# previous.cwd
+						|| task.requested_cwd ==# previous.cwd)
+				Warn($'That task is already running on "{key}"')
+				return
+			endif
+		endfor
+		StartRunTask(conn, RunSpec.new(previous.command, previous.cwd, previous.efm))
+		return
+	endif
+
+	const cwd = empty(parsed.cwd) ? CurrentRemoteCwd(conn) : parsed.cwd
+	StartRunTask(conn, RunSpec.new(parsed.command, cwd, &errorformat))
+enddef
+
 # ── Command Implementation ───────────────────────────────────────────────────
 
 def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): void)
@@ -2162,6 +2660,8 @@ export def ConduitExitCmd(host: string)
 		if getftype(conn.GetConduitControlPath()) ==# "socket"
 			var notif = notifier.StartLoading($"Exiting from {host}")
 
+			ConduitStopCmd('run', [key, '*'])
+
 			# Stop the running terminal job
 			for bufnr in keys(conn.term_bufnr)
 				const term_job = term_getjob(conn.term_bufnr[bufnr])
@@ -2199,6 +2699,22 @@ export def ConduitStopCmd(type: string, args: list<string>)
 	if empty(key)
 		Warn($'No current control socket for {args[0]}')
 		return
+	endif
+
+	if type ==# 'run' || type ==# '*'
+		var i = len(run_tasks) - 1
+		while i >= 0
+			const task = run_tasks[i]
+			if task.conn_key ==# key
+				const search_over = [task.command, task.resolved_cwd]
+				if iden ==# '*' || !empty(matchfuzzy(search_over, iden))
+					task.Cancel()
+					if job_status(task.job) ==# 'run' | job_stop(task.job) | endif
+				endif
+			endif
+			i -= 1
+		endwhile
+		if type ==# 'run' | return | endif
 	endif
 
 	var ops: list<Op>
@@ -2240,6 +2756,7 @@ export def ConduitDisconnectCmd(host: string)
 	const key = ResolveConnectionKey(host)
 	if !empty(key)
 		const notif = notifier.StartLoading($"Disconnecting from {host}")
+		ConduitStopCmd('run', [key, '*'])
 		connections[key].Disconnect()
 		notifier.StopLoading(
 			notif, $"‹✓› Disconnected from {host}", false, GetSuccessTimeout(),
@@ -2287,7 +2804,31 @@ enddef
 
 # ── Vim Command Interface ────────────────────────────────────────────────────
 
+export def ConduitDispatch(
+	deploy_only: bool,
+	bang: bool,
+	mods: string,
+	raw_args: string,
+	args: list<string>,
+)
+	if !empty(args) && args[0] ==# 'run'
+		const run_args = substitute(
+			raw_args,
+			'^\s*run\%(\s\+\|$\)',
+			'',
+			'',
+		)
+		ConduitRunCmd(bang, run_args)
+		return
+	endif
+	ConduitCmdList(deploy_only, bang, mods, args)
+enddef
+
 export def ConduitCmd(deploy_only: bool, bang: bool, mods: string, ...args: list<string>)
+	ConduitCmdList(deploy_only, bang, mods, args)
+enddef
+
+def ConduitCmdList(deploy_only: bool, bang: bool, mods: string, args: list<string>)
 	if empty(args) | return | endif
 
 	const curwin = bang || index(args, '++curwin') > 0
@@ -2525,7 +3066,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
     # Completing the sub-command (e.g., "Conduit op")
 	const mods = '\(' .. modifiers->join('\|') .. '\)\? \?'
     if current_cmd =~ $'^{mods}Conduit!\? \+\S*$'
-        var options = ["open", "exit", "deploy", "disconnect", "source", "notifications", "stop", "socket"]
+        var options = ["open", "run", "exit", "deploy", "disconnect", "source", "notifications", "stop", "socket"]
 		if empty(ArgLead) | return options | endif
         return matchfuzzy(options, ArgLead)
 
@@ -2535,12 +3076,26 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		return ConduitHostComplHelper(current_cmd, ArgLead)
     elseif  cmd ==# "notifications"
 		return ConduitNotificationComplHelper(current_cmd, ArgLead)
+	elseif cmd ==# 'run'
+		var run_parts = len(parts) > 2 ? parts[2 : ] : []
+		const ends_in_space = current_cmd =~# '\s$'
+		var completed = copy(run_parts)
+		if !ends_in_space && !empty(completed)
+			completed->remove(-1)
+		endif
+		for value in completed
+			if value !~# '^+' | return [] | endif
+		endfor
+
+		var suggestions = ['++cwd='] + keys(connections)
+		if empty(ArgLead) | return suggestions | endif
+		return matchfuzzy(suggestions, ArgLead)
 
     # Completing the second argument for the other sub-commands.
 	elseif current_cmd =~ $'^{mods}Conduit!\? \+\S\+ \+\S*$'
         if len(parts) >= 2
 			if cmd ==# "stop"
-				return ["get", "put", "*"]
+				return ["get", "put", "run", "*"]
             else
 				const prefix = "Conduit" .. ToTitleCase(cmd)
 				const host = len(parts) >= 3 ? parts[2] : "" # Fixed index: parts[2] is the host
@@ -2572,6 +3127,16 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 			# completion items
 			var files: list<string> = []
 			const op_type = parts[2]
+
+			if op_type ==# 'run'
+				for task in run_tasks
+					if task.conn_key !=# host | continue | endif
+					files->add(task.command)
+					if !empty(task.resolved_cwd) | files->add(task.resolved_cwd) | endif
+				endfor
+				if !empty(files) | files->add('*') | endif
+				return empty(ArgLead) ? files : matchfuzzy(files, ArgLead)
+			endif
 
 			var ops: list<Op>
 			if op_type ==# "get"
