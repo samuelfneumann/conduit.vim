@@ -78,6 +78,35 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `lvim` reverse tunnel (and any forwarding option you request) — see
         |conduit-forwarding|.
 
+:Conduit run [++cwd=DIR] {connection-key} {command}          *:Conduit-run*
+        Run {command} through an existing Conduit SSH connection. Standard
+        output and standard error are merged in order and appended live to a
+        new quickfix list using the current value of 'errorformat'.
+
+        `++cwd=DIR` selects the remote working directory. Like other Conduit
+        options, it uses Vim's `+` convention and appears before the
+        connection key. If omitted, Conduit uses the current remote buffer's
+        directory when it belongs to the same connection; otherwise it uses
+        the remote login home.
+
+        Everything after {connection-key} is preserved as remote shell text.
+        Escape a pipeline bar for Ex command parsing:
+>
+            :Conduit run ++cwd=/srv/app dev make test
+            :Conduit run dev pytest \| tee /tmp/test.log
+<
+        Relative filenames parsed from diagnostics are resolved against the
+        actual remote working directory. Quickfix jumps use the full Conduit
+        profile, including its identity, port, jump host, and ControlPath.
+        Plain output lines which resolve to real remote files are also made
+        jumpable, supporting commands such as `ls`, `find`, and
+        `git ls-files`. Other output remains as non-jumpable quickfix text.
+
+:Conduit! run {connection-key}                              *:Conduit-run-bang*
+        Rerun the last completed task for this connection, preserving its
+        command, resolved working directory, and 'errorformat'. The bang is
+        attached to `:Conduit`; `:Conduit run!` is not supported.
+
                                                             *conduit-forwarding*
 SSH forwarding flags (`+L`, `+R`, `+D`, `+w`) are only applied to the one new
 SSH session that a `:Conduit open` or `:Conduit deploy` call creates (the
@@ -116,10 +145,11 @@ command and terminal that Conduit requires.
         Show a history of conduit notifications or dismiss all active
         notifications.
 
-:Conduit stop {get|put|*} {connection-key} {pattern}        *:Conduit-stop*
-        Stop ongoing transfer jobs. `pattern` is fuzzily matched against the
-        transfer's local and remote file names. Use `*` to stop all matching
-        jobs for that connection and transfer type.
+:Conduit stop {get|put|run|*} {connection-key} {pattern}    *:Conduit-stop*
+        Stop ongoing transfer or run jobs. For transfers, `pattern` is fuzzily
+        matched against the local and remote file names. For runs, it is
+        matched against the command and working directory. Use `*` to stop all
+        matching jobs for that connection and operation type.
 
         Connection keys are resolved by exact key, by host name, or by a
         unique prefix. When multiple profiles are open for the same host, use
@@ -241,6 +271,12 @@ g:conduit_echo_socket				    *g:conduit_echo_socket*
 	Use `echom` for the `:Conduit socket` command, rather than displaying
 	in a notification.
         Default: false
+
+g:conduit_run_auto_open_quickfix             *g:conduit_run_auto_open_quickfix*
+        When true, run `:cwindow` after the current remote task completes.
+        When false, keep focus unchanged and include the quickfix list number
+        and `:copen` hint in the completion notification.
+        Default: true
 
 ==============================================================================
 5. Remote Command (lvim)                                    *conduit-lvim*
