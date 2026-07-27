@@ -389,6 +389,11 @@ class RunTask
 	var notif: number
 	var line_count: number
 	var cancelled: bool
+	# Number of leading quickfix items already passed through
+	# NormalizeRunQuickfix(); everything below it needs no second look.
+	var normalized: number
+	# Pending NormalizeRunQuickfix() timer, or -1 when none is armed.
+	var normalize_timer: number
 
 	def new(
 		id: number,
@@ -410,6 +415,8 @@ class RunTask
 		this.notif = notif
 		this.line_count = 0
 		this.cancelled = false
+		this.normalized = 0
+		this.normalize_timer = -1
 	enddef
 
 	def SetJob(j: job)
@@ -422,6 +429,21 @@ class RunTask
 
 	def AddLine()
 		this.line_count += 1
+	enddef
+
+	def SetNormalized(count: number)
+		this.normalized = count
+	enddef
+
+	def ArmNormalizeTimer(timer: number)
+		this.normalize_timer = timer
+	enddef
+
+	def DisarmNormalizeTimer()
+		if this.normalize_timer >= 0
+			timer_stop(this.normalize_timer)
+			this.normalize_timer = -1
+		endif
 	enddef
 
 	def Cancel()
@@ -2062,12 +2084,19 @@ def RunTaskContext(task: RunTask, exit_code: number = -999): dict<any>
 enddef
 
 def NormalizeRunQuickfix(task: RunTask)
-	if empty(task.resolved_cwd) | return | endif
+	task.DisarmNormalizeTimer()
+	if empty(task.resolved_cwd) || !connections->has_key(task.conn_key)
+		return
+	endif
 
-	const qf = getqflist({id: task.qf_id, items: 0, title: 0})
+	const qf = getqflist({id: task.qf_id, items: 0, nr: 0, title: 0})
+	if qf.nr == 0 | return | endif
 	var items: list<dict<any>> = deepcopy(qf.items)
 	var changed = false
-	for item in items
+	# Items below task.normalized were rewritten by an earlier pass, so a run
+	# producing n lines walks each item once overall instead of once per line.
+	for i in range(task.normalized, len(items) - 1)
+		var item = items[i]
 		const item_bufnr = get(item, 'bufnr', 0)
 		if item_bufnr <= 0 | continue | endif
 		const name = bufname(item_bufnr)
@@ -2082,6 +2111,7 @@ def NormalizeRunQuickfix(task: RunTask)
 		if item->has_key('filename') | item->remove('filename') | endif
 		changed = true
 	endfor
+	task.SetNormalized(len(items))
 
 	if changed
 		setqflist([], 'r', {
@@ -2091,6 +2121,17 @@ def NormalizeRunQuickfix(task: RunTask)
 			context: RunTaskContext(task),
 		})
 	endif
+enddef
+
+# Coalesce the normalize pass across bursts of output: a command emitting
+# thousands of lines triggers a bounded number of rewrites, not one per line.
+const run_normalize_delay = 50
+
+def ScheduleNormalizeRunQuickfix(task: RunTask)
+	if empty(task.resolved_cwd) || task.normalize_timer >= 0 | return | endif
+	task.ArmNormalizeTimer(
+		timer_start(run_normalize_delay, (_) => NormalizeRunQuickfix(task)),
+	)
 enddef
 
 def PromoteRunFileEntries(task: RunTask)
@@ -2166,7 +2207,7 @@ def AppendRunOutput(task: RunTask, line: string)
 		lines: [line],
 		efm: task.efm,
 	})
-	NormalizeRunQuickfix(task)
+	ScheduleNormalizeRunQuickfix(task)
 enddef
 
 def RunControlPrefix(task: RunTask): string
@@ -2183,7 +2224,7 @@ def OnRunLine(task: RunTask, line: string)
 			start + strlen(prefix),
 			finish - start - strlen(prefix),
 		))
-		NormalizeRunQuickfix(task)
+		ScheduleNormalizeRunQuickfix(task)
 		const remainder = strpart(line, finish + 1)
 		if !empty(remainder) | AppendRunOutput(task, remainder) | endif
 		return
@@ -2204,6 +2245,10 @@ def FinishRunTask(task: RunTask, code: number)
 	const idx = run_tasks->index(task)
 	if idx >= 0 | run_tasks->remove(idx) | endif
 
+	# Drop any coalesced pass; the flush below covers the remaining items and
+	# PromoteRunFileEntries() blocks on SSH, which would let a timer fire
+	# midway through its rewrite.
+	task.DisarmNormalizeTimer()
 	last_runs[task.conn_key] = RunSpec.new(
 		task.command,
 		empty(task.resolved_cwd) ? task.requested_cwd : task.resolved_cwd,
