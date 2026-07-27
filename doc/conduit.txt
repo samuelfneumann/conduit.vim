@@ -47,21 +47,42 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         a space-separated value.
 
         SSH options have both forms:
-        `+B` / `++bindinterface`, `+b` / `++bindaddress`,
-        `+c` / `++cipher`, `+D` / `++dynamicforward`,
-        `+E` / `++logfile`, `+F` / `++config`, `+I` / `++pkcs11`,
-        `+i` / `++identity`, `+J` / `++proxyjump`, `+l` / `++login`,
-        `+L` / `++localforward`, `+m` / `++mac`, `+o` / `++option`,
-        `+p` / `++port`, `+Q` / `++query`,
-        `+R` / `++remoteforward`, and `+w` / `++tunnel`.
+	    `+B` / `++bindinterface`
+	    `+b` / `++bindaddress`
+	    `+c` / `++cipher`
+	    `+D` / `++dynamicforward`
+	    `+E` / `++logfile`
+	    `+F` / `++config`
+	    `+I` / `++pkcs11`
+	    `+i` / `++identity`
+	    `+J` / `++proxyjump`
+	    `+l` / `++login`
+	    `+L` / `++localforward`
+	    `+m` / `++mac`
+	    `+o` / `++option`
+	    `+p` / `++port`
+	    `+Q` / `++query`
+	    `+R` / `++remoteforward`
+	    `+w` / `++tunnel`
         For example, `+p 2222` and `++port 2222` are equivalent, as are
         `+J user@bastion` and `++proxyjump user@bastion`. See
         |conduit-forwarding| for how forwarding options are scoped.
 
-        Vim terminal options currently use long form: `++curwin`,
-        `++vertical`, `++hidden`, `++norestore`, `++open`, `++close`,
-        `++noclose`, `++shell`, `++rows=N`, `++cols=N`, `++eof=...`,
-        `++api=...`, `++kill=...`, and `++opencmd=...`.
+        Vim terminal options currently use long form:
+	    `++curwin`
+	    `++vertical`
+	    `++hidden`
+	    `++norestore`
+	    `++open`
+	    `++close`
+	    `++noclose`
+	    `++shell`
+	    `++rows=N`
+	    `++cols=N`
+	    `++eof=...`
+	    `++api=...`
+	    `++kill=...`
+	    `++opencmd=...`
 
         A short-form name must be exactly one character; a long-form name
         must not be. Both forms are closed, validated sets: only the SSH and
@@ -331,7 +352,7 @@ g:conduit_run_auto_open_quickfix             *g:conduit_run_auto_open_quickfix*
         Default: true
 
 ==============================================================================
-5. Remote Command (lvim)                                    *conduit-lvim*
+5. Remote Command (`lvim`)                                    *conduit-lvim*
 
 The `lvim` command is injected into the remote shell. It supports the
 following syntax:

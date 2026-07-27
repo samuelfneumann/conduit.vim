@@ -68,6 +68,9 @@ Then, read the docs:
 " Start an interactive SSH terminal and deploy lvim/vim aliases
 :Conduit open user@example.com
 
+" Start an interactive SSH terminal in a hidden buffer, useful for `:Conduit run`
+:Conduit open ++hidden user@example.com
+
 " `:Conduit open` works with modifiers and bar!
 :tab Conduit open user@example.com
 :topleft Conduit open user@example.com

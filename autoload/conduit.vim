@@ -590,11 +590,20 @@ const ssh_option_specs: list<SshOption> = [
 
 # List of all Conduit terminal options
 const term_option_specs: list<TermOption> = [
-	TermOption.new('vertical'), TermOption.new('close'), TermOption.new('noclose'),
-	TermOption.new('curwin'), TermOption.new('open'), TermOption.new('hidden'),
-	TermOption.new('norestore'), TermOption.new('shell'),
-	TermOption.new('rows', true), TermOption.new('cols', true), TermOption.new('eof', true),
-	TermOption.new('api', true), TermOption.new('kill', true), TermOption.new('opencmd', true),
+	TermOption.new('vertical'),
+	TermOption.new('close'),
+	TermOption.new('noclose'),
+	TermOption.new('curwin'),
+	TermOption.new('open'),
+	TermOption.new('hidden'),
+	TermOption.new('norestore'),
+	TermOption.new('shell'),
+	TermOption.new('rows', true),
+	TermOption.new('cols', true),
+	TermOption.new('eof', true),
+	TermOption.new('api', true),
+	TermOption.new('kill', true),
+	TermOption.new('opencmd', true),
 ]
 
 # Stores all ConduitOptions
