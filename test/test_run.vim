@@ -11,9 +11,28 @@ let parsed = conduit#ParseConduitRunArgs(
 call assert_equal('/srv/my app', parsed.cwd)
 call assert_equal('dev', parsed.connection)
 call assert_equal('printf x | sed s/x/y/', parsed.command)
+call assert_equal(v:false, parsed.loclist)
+
+let loclist_parsed = conduit#ParseConduitRunArgs(
+	\ '++loclist ++cwd=/srv dev make',
+	\ v:false,
+	\ )
+call assert_equal(v:true, loclist_parsed.loclist)
+call assert_equal('/srv', loclist_parsed.cwd)
+call assert_equal('make', loclist_parsed.command)
 
 let rerun = conduit#ParseConduitRunArgs('dev', v:true)
-call assert_equal({'connection': 'dev', 'command': '', 'cwd': ''}, rerun)
+call assert_equal(
+	\ {'connection': 'dev', 'command': '', 'cwd': '', 'loclist': v:false},
+	\ rerun,
+	\ )
+
+try
+	call conduit#ParseConduitRunArgs('++loclist ++loclist dev echo ok', v:false)
+	call assert_report('repeated ++loclist was accepted')
+catch
+	call assert_match('C013:', v:exception)
+endtry
 
 try
 	call conduit#ParseConduitRunArgs('++bogus dev echo ok', v:false)
@@ -29,7 +48,7 @@ catch
 endtry
 
 call assert_equal(
-	\ ['++cwd='],
+	\ ['++cwd=', '++loclist'],
 	\ conduit#ConduitCompl('', 'Conduit run ', strlen('Conduit run ') + 1),
 	\ )
 call assert_equal(
@@ -91,6 +110,59 @@ call assert_equal(0, file_qf.items[0].col)
 cfirst
 call assert_equal('/tmp/conduit-run-clickable-test', b:conduit_remote_path)
 call delete(clickable_file)
+
+" ++loclist targets the invoking window's location list, not the quickfix list.
+let qf_id_before = getqflist({'id': 0}).id
+let run_winid = win_getid()
+Conduit run ++loclist ++cwd=/tmp testhost echo loc.c:7:3: error: nope
+sleep 500m
+let loc = getloclist(run_winid, {'items': 0, 'context': 0, 'title': 0})
+call assert_equal('run', loc.context.conduit)
+call assert_equal(0, loc.context.exit_code)
+call assert_match('(finished, 1 entry)$', loc.title)
+call assert_equal(1, len(loc.items))
+call assert_equal('loc.c', loc.items[0].module)
+call assert_equal(7, loc.items[0].lnum)
+call assert_equal(qf_id_before, getqflist({'id': 0}).id)
+
+" Auto-open uses :lwindow, so the window that opens is a location window.
+let g:conduit_run_auto_open_quickfix = v:true
+Conduit run ++loclist ++cwd=/tmp testhost echo opened.c:2:1: error: y
+sleep 500m
+call assert_equal(1, len(filter(getwininfo(), {_, w -> w.loclist})))
+call assert_equal(0, len(filter(getwininfo(), {_, w -> w.quickfix && !w.loclist})))
+lclose
+let g:conduit_run_auto_open_quickfix = v:false
+
+" A rerun stays on the location list, resolving the window afresh.
+Conduit! run testhost
+sleep 500m
+let rerun_loc = getloclist(run_winid, {'items': 0, 'context': 0})
+call assert_equal(0, rerun_loc.context.exit_code)
+call assert_equal(1, len(rerun_loc.items))
+call assert_equal(qf_id_before, getqflist({'id': 0}).id)
+
+" A quickfix window cannot own a location list, so the run falls back.
+copen
+call assert_equal(1, getwininfo(win_getid())[0].quickfix)
+Conduit run ++loclist ++cwd=/tmp testhost echo fallback.c:1:1: error: x
+sleep 500m
+let fallback_qf = getqflist({'context': 0, 'title': 0})
+call assert_equal('run', fallback_qf.context.conduit)
+call assert_match('fallback.c', fallback_qf.title)
+cclose
+
+" Closing the owning window mid-run frees the location list; the task must
+" finish without writing to it.
+messages clear
+new
+let doomed_winid = win_getid()
+Conduit run ++loclist testhost sleep 1
+sleep 200m
+close
+sleep 1500m
+call assert_equal([], getwininfo(doomed_winid))
+call assert_notmatch('E\d\+:', execute('messages'))
 
 Conduit run testhost sleep 5
 sleep 100m

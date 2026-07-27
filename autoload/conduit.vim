@@ -369,11 +369,16 @@ class RunSpec
 	var command: string
 	var cwd: string
 	var efm: string
+	# Whether the run targets a location list. The owning window is
+	# deliberately not stored: a rerun resolves it afresh, so it never points
+	# at a window that has since been closed or reused.
+	var use_loclist: bool
 
-	def new(command: string, cwd: string, efm: string)
+	def new(command: string, cwd: string, efm: string, use_loclist: bool = false)
 		this.command = command
 		this.cwd = cwd
 		this.efm = efm
+		this.use_loclist = use_loclist
 	enddef
 endclass
 
@@ -385,6 +390,12 @@ const run_normalize_delay = 50
 # runs. Every setqflist()/getqflist() call for a run goes through here, so the
 # task itself never names a list API.
 class RunListSink
+	# When true the run feeds the location list of `winid`; otherwise it feeds
+	# the quickfix list and `winid` is unused. A location list is addressed by
+	# window, and setloclist() reads window 0 as "the current window", so the
+	# mode needs its own flag rather than a sentinel winid.
+	var use_loclist: bool
+	var winid: number
 	var id: number
 	var efm: string
 	# Number of leading items a previous normalize pass already rewrote;
@@ -393,40 +404,83 @@ class RunListSink
 	# Pending normalize timer, or -1 when none is armed.
 	var timer: number
 
-	def new(efm: string)
+	def new(efm: string, use_loclist: bool = false, winid: number = 0)
+		this.use_loclist = use_loclist
+		this.winid = winid
 		this.id = 0
 		this.efm = efm
 		this.normalized = 0
 		this.timer = -1
 	enddef
 
+	# A location list is owned by its window and is freed when that window
+	# closes, while the job feeding it keeps running. Quickfix has no such
+	# owner, so it is always alive. Every write goes through this check, so no
+	# caller has to remember it.
+	def IsAlive(): bool
+		return !this.use_loclist || !empty(getwininfo(this.winid))
+	enddef
+
+	def Set(action: string, what: dict<any>)
+		if !this.IsAlive() | return | endif
+		if this.use_loclist
+			setloclist(this.winid, [], action, what)
+		else
+			setqflist([], action, what)
+		endif
+	enddef
+
+	def Get(what: dict<any>): dict<any>
+		if !this.IsAlive() | return {} | endif
+		return this.use_loclist
+			? getloclist(this.winid, what)
+			: getqflist(what)
+	enddef
+
 	# Push a fresh list and adopt its id, so later writes keep targeting this
 	# task's list even once it is no longer the current one.
 	def Create(title: string, context: dict<any>)
-		setqflist([], ' ', {title: title, context: context})
-		this.id = getqflist({id: 0}).id
+		this.Set(' ', {title: title, context: context})
+		this.id = get(this.Get({id: 0}), 'id', 0)
 	enddef
 
-	# "nr" comes back as 0 once the list has been freed, which is how callers
-	# tell a late timer not to write to it.
+	# "nr" comes back as 0 once the list has been freed — or once the owning
+	# window is gone — which is how callers tell a late pass not to write.
 	def Read(): dict<any>
-		return getqflist({id: this.id, items: 0, nr: 0, title: 0})
+		const empty_list = {items: [], nr: 0, title: ''}
+		if this.id <= 0 | return empty_list | endif
+		const result = this.Get({id: this.id, items: 0, nr: 0, title: 0})
+		return empty(result) ? empty_list : result
 	enddef
 
+	# For a location list this also requires standing in the owning window:
+	# auto-opening someone else's list under a window they are not looking at
+	# would be a surprise, and :lwindow only acts on the current window.
 	def IsCurrent(): bool
-		return this.id > 0 && getqflist({id: 0}).id == this.id
+		if this.id <= 0 || !this.IsAlive() | return false | endif
+		if this.use_loclist && win_getid() != this.winid | return false | endif
+		return get(this.Get({id: 0}), 'id', 0) == this.id
 	enddef
 
+	# Only reached when IsCurrent() holds, so the owning window is current.
 	def Open()
-		silent! cwindow
+		if this.use_loclist
+			silent! lwindow
+		else
+			silent! cwindow
+		endif
+	enddef
+
+	def OpenCommand(): string
+		return this.use_loclist ? ':lopen' : ':copen'
 	enddef
 
 	def Append(lines: list<string>)
-		setqflist([], 'a', {id: this.id, lines: lines, efm: this.efm})
+		this.Set('a', {id: this.id, lines: lines, efm: this.efm})
 	enddef
 
 	def Replace(items: list<dict<any>>, title: string, context: dict<any>)
-		setqflist([], 'r', {
+		this.Set('r', {
 			id: this.id,
 			items: items,
 			title: title,
@@ -435,11 +489,11 @@ class RunListSink
 	enddef
 
 	def Finish(title: string, context: dict<any>)
-		setqflist([], 'a', {id: this.id, title: title, context: context})
+		this.Set('a', {id: this.id, title: title, context: context})
 	enddef
 
 	def SetContext(context: dict<any>)
-		setqflist([], 'a', {id: this.id, context: context})
+		this.Set('a', {id: this.id, context: context})
 	enddef
 
 	def SetNormalized(count: number)
@@ -2073,9 +2127,10 @@ def NextRunToken(raw: string, start: number): tuple<string, number>
 	return (token, pos)
 enddef
 
-export def ParseConduitRunArgs(raw: string, bang: bool): dict<string>
+export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 	var pos = 0
 	var cwd = ''
+	var loclist = false
 	var token: string
 	[token, pos] = NextRunToken(raw, pos)
 
@@ -2092,7 +2147,7 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<string>
 				'Conduit! run only accepts a connection key',
 			)
 		endif
-		return {connection: token, command: '', cwd: ''}
+		return {connection: token, command: '', cwd: '', loclist: false}
 	endif
 
 	while token =~# '^+'
@@ -2103,6 +2158,13 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<string>
 				)
 			endif
 			cwd = token[len('++cwd=') : ]
+		elseif token ==# '++loclist'
+			if loclist
+				throw error.Error.InvalidConduitOption.Format(
+					'++loclist may only be given once',
+				)
+			endif
+			loclist = true
 		else
 			throw error.Error.InvalidConduitOption.Format(
 				$'option "{token}" is unknown',
@@ -2120,7 +2182,7 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<string>
 		throw error.Error.InvalidExecuteCommand.Format('missing remote command')
 	endif
 
-	return {connection: token, command: command, cwd: cwd}
+	return {connection: token, command: command, cwd: cwd, loclist: loclist}
 enddef
 
 def CurrentRemoteCwd(conn: Connection): string
@@ -2312,6 +2374,7 @@ def FinishRunTask(task: RunTask, code: number)
 		task.command,
 		empty(task.resolved_cwd) ? task.requested_cwd : task.resolved_cwd,
 		task.efm,
+		task.sink.use_loclist,
 	)
 	PromoteRunFileEntries(task)
 	NormalizeRunQuickfix(task)
@@ -2344,12 +2407,20 @@ def FinishRunTask(task: RunTask, code: number)
 	endif
 
 	var entry_label = entry_count == 1 ? 'entry' : 'entries'
-	var msg = $'{task.command}: {state}; {entry_count} quickfix {entry_label}'
-	if valid_count != entry_count
-		msg ..= $' ({valid_count} jumpable)'
-	endif
-	if task.line_count > 0 && !can_open
-		msg ..= $' in list #{qf.nr} (:copen)'
+	const list_label = task.sink.use_loclist ? 'location' : 'quickfix'
+	var msg: string
+	if !task.sink.IsAlive()
+		# The window that owned the location list was closed mid-run, taking
+		# the list with it. Say so rather than reporting zero entries.
+		msg = $'{task.command}: {state}; location list window closed'
+	else
+		msg = $'{task.command}: {state}; {entry_count} {list_label} {entry_label}'
+		if valid_count != entry_count
+			msg ..= $' ({valid_count} jumpable)'
+		endif
+		if task.line_count > 0 && !can_open
+			msg ..= $' in list #{qf.nr} ({task.sink.OpenCommand()})'
+		endif
 	endif
 	notifier.StopLoading(
 		task.notif,
@@ -2358,7 +2429,7 @@ def FinishRunTask(task: RunTask, code: number)
 		timeout,
 	)
 
-	# Fold the outcome into the title so it survives in the quickfix
+	# Fold the outcome into the title so it survives in the list's
 	# statusline once the notification has timed out.
 	var title = RunTaskTitle(task.conn_key, task.command)
 		.. $' ({outcome}, {entry_count} {entry_label}'
@@ -2379,10 +2450,25 @@ def RemoteCdCommand(cwd: string): string
 	return 'cd -- ' .. shellescape(cwd)
 enddef
 
+# Resolve the window a location-list run attaches to, at the moment the task
+# starts. Reruns therefore follow the window you are standing in rather than
+# the one the original run used, which may since have closed.
+def ResolveRunTarget(spec: RunSpec): RunListSink
+	if !spec.use_loclist | return RunListSink.new(spec.efm) | endif
+
+	const winid = win_getid()
+	const info = getwininfo(winid)
+	if !empty(info) && (info[0].terminal || info[0].quickfix)
+		Warn('++loclist needs a normal window; using the quickfix list')
+		return RunListSink.new(spec.efm)
+	endif
+	return RunListSink.new(spec.efm, true, winid)
+enddef
+
 def StartRunTask(conn: Connection, spec: RunSpec)
 	const id = next_run_id
 	next_run_id += 1
-	const sink = RunListSink.new(spec.efm)
+	const sink = ResolveRunTarget(spec)
 	sink.Create(RunTaskTitle(conn.GetProfileKey(), spec.command), {
 		conduit: 'run',
 		task_id: id,
@@ -2439,7 +2525,7 @@ def StartRunTask(conn: Connection, spec: RunSpec)
 enddef
 
 export def ConduitRunCmd(bang: bool, raw: string)
-	var parsed: dict<string>
+	var parsed: dict<any>
 	try
 		parsed = ParseConduitRunArgs(raw, bang)
 	catch
@@ -2473,12 +2559,22 @@ export def ConduitRunCmd(bang: bool, raw: string)
 				return
 			endif
 		endfor
-		StartRunTask(conn, RunSpec.new(previous.command, previous.cwd, previous.efm))
+		StartRunTask(conn, RunSpec.new(
+			previous.command,
+			previous.cwd,
+			previous.efm,
+			previous.use_loclist,
+		))
 		return
 	endif
 
 	const cwd = empty(parsed.cwd) ? CurrentRemoteCwd(conn) : parsed.cwd
-	StartRunTask(conn, RunSpec.new(parsed.command, cwd, &errorformat))
+	StartRunTask(conn, RunSpec.new(
+		parsed.command,
+		cwd,
+		&errorformat,
+		parsed.loclist,
+	))
 enddef
 
 # ── Command Implementation ───────────────────────────────────────────────────
@@ -3191,7 +3287,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 			if value !~# '^+' | return [] | endif
 		endfor
 
-		var suggestions = ['++cwd='] + keys(connections)
+		var suggestions = ['++cwd=', '++loclist'] + keys(connections)
 		if empty(ArgLead) | return suggestions | endif
 		return matchfuzzy(suggestions, ArgLead)
 
