@@ -377,6 +377,88 @@ class RunSpec
 	enddef
 endclass
 
+# Coalesce the normalize pass across bursts of output: a command emitting
+# thousands of lines triggers a bounded number of rewrites, not one per line.
+const run_normalize_delay = 50
+
+# Owns where a run's parsed output lands and when its deferred normalize pass
+# runs. Every setqflist()/getqflist() call for a run goes through here, so the
+# task itself never names a list API.
+class RunListSink
+	var id: number
+	var efm: string
+	# Number of leading items a previous normalize pass already rewrote;
+	# everything below it needs no second look.
+	var normalized: number
+	# Pending normalize timer, or -1 when none is armed.
+	var timer: number
+
+	def new(efm: string)
+		this.id = 0
+		this.efm = efm
+		this.normalized = 0
+		this.timer = -1
+	enddef
+
+	# Push a fresh list and adopt its id, so later writes keep targeting this
+	# task's list even once it is no longer the current one.
+	def Create(title: string, context: dict<any>)
+		setqflist([], ' ', {title: title, context: context})
+		this.id = getqflist({id: 0}).id
+	enddef
+
+	# "nr" comes back as 0 once the list has been freed, which is how callers
+	# tell a late timer not to write to it.
+	def Read(): dict<any>
+		return getqflist({id: this.id, items: 0, nr: 0, title: 0})
+	enddef
+
+	def IsCurrent(): bool
+		return this.id > 0 && getqflist({id: 0}).id == this.id
+	enddef
+
+	def Open()
+		silent! cwindow
+	enddef
+
+	def Append(lines: list<string>)
+		setqflist([], 'a', {id: this.id, lines: lines, efm: this.efm})
+	enddef
+
+	def Replace(items: list<dict<any>>, title: string, context: dict<any>)
+		setqflist([], 'r', {
+			id: this.id,
+			items: items,
+			title: title,
+			context: context,
+		})
+	enddef
+
+	def Finish(title: string, context: dict<any>)
+		setqflist([], 'a', {id: this.id, title: title, context: context})
+	enddef
+
+	def SetContext(context: dict<any>)
+		setqflist([], 'a', {id: this.id, context: context})
+	enddef
+
+	def SetNormalized(count: number)
+		this.normalized = count
+	enddef
+
+	def Schedule(Pass: func)
+		if this.timer >= 0 | return | endif
+		this.timer = timer_start(run_normalize_delay, (_) => Pass())
+	enddef
+
+	def Disarm()
+		if this.timer >= 0
+			timer_stop(this.timer)
+			this.timer = -1
+		endif
+	enddef
+endclass
+
 class RunTask
 	var id: number
 	var conn_key: string
@@ -385,15 +467,10 @@ class RunTask
 	var requested_cwd: string
 	var resolved_cwd: string
 	var efm: string
-	var qf_id: number
+	var sink: RunListSink
 	var notif: number
 	var line_count: number
 	var cancelled: bool
-	# Number of leading quickfix items already passed through
-	# NormalizeRunQuickfix(); everything below it needs no second look.
-	var normalized: number
-	# Pending NormalizeRunQuickfix() timer, or -1 when none is armed.
-	var normalize_timer: number
 
 	def new(
 		id: number,
@@ -401,7 +478,7 @@ class RunTask
 		command: string,
 		requested_cwd: string,
 		efm: string,
-		qf_id: number,
+		sink: RunListSink,
 		notif: number,
 	)
 		this.id = id
@@ -411,12 +488,10 @@ class RunTask
 		this.requested_cwd = requested_cwd
 		this.resolved_cwd = ''
 		this.efm = efm
-		this.qf_id = qf_id
+		this.sink = sink
 		this.notif = notif
 		this.line_count = 0
 		this.cancelled = false
-		this.normalized = 0
-		this.normalize_timer = -1
 	enddef
 
 	def SetJob(j: job)
@@ -429,21 +504,6 @@ class RunTask
 
 	def AddLine()
 		this.line_count += 1
-	enddef
-
-	def SetNormalized(count: number)
-		this.normalized = count
-	enddef
-
-	def ArmNormalizeTimer(timer: number)
-		this.normalize_timer = timer
-	enddef
-
-	def DisarmNormalizeTimer()
-		if this.normalize_timer >= 0
-			timer_stop(this.normalize_timer)
-			this.normalize_timer = -1
-		endif
 	enddef
 
 	def Cancel()
@@ -2100,18 +2160,18 @@ def RunDisplayPath(task: RunTask, remote_path: string): string
 enddef
 
 def NormalizeRunQuickfix(task: RunTask)
-	task.DisarmNormalizeTimer()
+	task.sink.Disarm()
 	if empty(task.resolved_cwd) || !connections->has_key(task.conn_key)
 		return
 	endif
 
-	const qf = getqflist({id: task.qf_id, items: 0, nr: 0, title: 0})
+	const qf = task.sink.Read()
 	if qf.nr == 0 | return | endif
 	var items: list<dict<any>> = deepcopy(qf.items)
 	var changed = false
-	# Items below task.normalized were rewritten by an earlier pass, so a run
-	# producing n lines walks each item once overall instead of once per line.
-	for i in range(task.normalized, len(items) - 1)
+	# Items below the sink's watermark were rewritten by an earlier pass, so a
+	# run producing n lines walks each item once overall, not once per line.
+	for i in range(task.sink.normalized, len(items) - 1)
 		var item = items[i]
 		const item_bufnr = get(item, 'bufnr', 0)
 		if item_bufnr <= 0 | continue | endif
@@ -2128,27 +2188,16 @@ def NormalizeRunQuickfix(task: RunTask)
 		if item->has_key('filename') | item->remove('filename') | endif
 		changed = true
 	endfor
-	task.SetNormalized(len(items))
+	task.sink.SetNormalized(len(items))
 
 	if changed
-		setqflist([], 'r', {
-			id: task.qf_id,
-			items: items,
-			title: qf.title,
-			context: RunTaskContext(task),
-		})
+		task.sink.Replace(items, qf.title, RunTaskContext(task))
 	endif
 enddef
 
-# Coalesce the normalize pass across bursts of output: a command emitting
-# thousands of lines triggers a bounded number of rewrites, not one per line.
-const run_normalize_delay = 50
-
 def ScheduleNormalizeRunQuickfix(task: RunTask)
-	if empty(task.resolved_cwd) || task.normalize_timer >= 0 | return | endif
-	task.ArmNormalizeTimer(
-		timer_start(run_normalize_delay, (_) => NormalizeRunQuickfix(task)),
-	)
+	if empty(task.resolved_cwd) | return | endif
+	task.sink.Schedule(() => NormalizeRunQuickfix(task))
 enddef
 
 def PromoteRunFileEntries(task: RunTask)
@@ -2156,7 +2205,7 @@ def PromoteRunFileEntries(task: RunTask)
 		return
 	endif
 
-	const qf = getqflist({id: task.qf_id, items: 0, title: 0})
+	const qf = task.sink.Read()
 	var items: list<dict<any>> = deepcopy(qf.items)
 	if empty(items) | return | endif
 	var item_paths: dict<string> = {}
@@ -2210,22 +2259,13 @@ def PromoteRunFileEntries(task: RunTask)
 	endfor
 
 	if changed
-		setqflist([], 'r', {
-			id: task.qf_id,
-			items: items,
-			title: qf.title,
-			context: RunTaskContext(task),
-		})
+		task.sink.Replace(items, qf.title, RunTaskContext(task))
 	endif
 enddef
 
 def AppendRunOutput(task: RunTask, line: string)
 	task.AddLine()
-	setqflist([], 'a', {
-		id: task.qf_id,
-		lines: [line],
-		efm: task.efm,
-	})
+	task.sink.Append([line])
 	ScheduleNormalizeRunQuickfix(task)
 enddef
 
@@ -2267,7 +2307,7 @@ def FinishRunTask(task: RunTask, code: number)
 	# Drop any coalesced pass; the flush below covers the remaining items and
 	# PromoteRunFileEntries() blocks on SSH, which would let a timer fire
 	# midway through its rewrite.
-	task.DisarmNormalizeTimer()
+	task.sink.Disarm()
 	last_runs[task.conn_key] = RunSpec.new(
 		task.command,
 		empty(task.resolved_cwd) ? task.requested_cwd : task.resolved_cwd,
@@ -2275,16 +2315,15 @@ def FinishRunTask(task: RunTask, code: number)
 	)
 	PromoteRunFileEntries(task)
 	NormalizeRunQuickfix(task)
-	const qf = getqflist({id: task.qf_id, items: 0, nr: 0, title: 0})
+	const qf = task.sink.Read()
 	const entry_count = len(qf.items)
 	const valid_count = qf.items
 		->copy()
 		->filter((_, item) => get(item, 'valid', 0))
 		->len()
-	const current_id = getqflist({id: 0}).id
-	const can_open = RunAutoOpenQuickfix() && current_id == task.qf_id
+	const can_open = RunAutoOpenQuickfix() && task.sink.IsCurrent()
 	if can_open
-		silent! cwindow
+		task.sink.Open()
 	endif
 
 	var state: string
@@ -2327,11 +2366,7 @@ def FinishRunTask(task: RunTask, code: number)
 		title ..= $', {valid_count} jumpable'
 	endif
 	title ..= ')'
-	setqflist([], 'a', {
-		id: task.qf_id,
-		title: title,
-		context: RunTaskContext(task, code),
-	})
+	task.sink.Finish(title, RunTaskContext(task, code))
 	redraw
 enddef
 
@@ -2347,18 +2382,14 @@ enddef
 def StartRunTask(conn: Connection, spec: RunSpec)
 	const id = next_run_id
 	next_run_id += 1
-	const title = RunTaskTitle(conn.GetProfileKey(), spec.command)
-	setqflist([], ' ', {
-		title: title,
-		context: {
-			conduit: 'run',
-			task_id: id,
-			connection: conn.GetProfileKey(),
-			command: spec.command,
-			cwd: spec.cwd,
-		},
+	const sink = RunListSink.new(spec.efm)
+	sink.Create(RunTaskTitle(conn.GetProfileKey(), spec.command), {
+		conduit: 'run',
+		task_id: id,
+		connection: conn.GetProfileKey(),
+		command: spec.command,
+		cwd: spec.cwd,
 	})
-	const qf = getqflist({id: 0})
 	const notif = notifier.StartLoading(
 		spec.command,
 		{prefix: '[run]', subprefix: $'[{conn.GetProfileKey()}]'},
@@ -2369,7 +2400,7 @@ def StartRunTask(conn: Connection, spec: RunSpec)
 		spec.command,
 		spec.cwd,
 		spec.efm,
-		qf.id,
+		sink,
 		notif,
 	)
 
@@ -2401,10 +2432,7 @@ def StartRunTask(conn: Connection, spec: RunSpec)
 			false,
 			GetFailureTimeout(),
 		)
-		setqflist([], 'a', {
-			id: task.qf_id,
-			context: RunTaskContext(task, -2),
-		})
+		task.sink.SetContext(RunTaskContext(task, -2))
 	else
 		run_tasks->add(task)
 	endif
