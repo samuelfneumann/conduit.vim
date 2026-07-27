@@ -78,7 +78,8 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `lvim` reverse tunnel (and any forwarding option you request) — see
         |conduit-forwarding|.
 
-:Conduit run [++cwd=DIR] {connection-key} {command}          *:Conduit-run*
+:Conduit run [++cwd=DIR] [++loclist] {connection-key} {command}
+                                                            *:Conduit-run*
         Run {command} through an existing Conduit SSH connection. Standard
         output and standard error are merged in order and appended live to a
         new quickfix list using the current value of 'errorformat'.
@@ -89,11 +90,15 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         directory when it belongs to the same connection; otherwise it uses
         the remote login home.
 
+        `++loclist` sends the output to a location list instead — see
+        |conduit-run-loclist|.
+
         Everything after {connection-key} is preserved as remote shell text.
         Escape a pipeline bar for Ex command parsing:
 >
             :Conduit run ++cwd=/srv/app dev make test
             :Conduit run dev pytest \| tee /tmp/test.log
+            :Conduit run ++loclist dev make
 <
         Relative filenames parsed from diagnostics are resolved against the
         actual remote working directory. Quickfix jumps use the full Conduit
@@ -122,10 +127,36 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         The jumpable count is only appended when it differs from the total
         entry count.
 
+                                                        *conduit-run-loclist*
+        With `++loclist`, output goes to the location list of the window the
+        command was invoked from, exactly as |:lmake| and |:lgrep| behave.
+        Which conduit terminals exist for the host, and whether any of them
+        is visible, has no bearing on it: runs travel over the connection's
+        ControlMaster, not through a terminal.
+
+        This is how you keep concurrent runs apart. Launch one per window
+        and each keeps its own list, instead of the runs stacking up in the
+        single shared quickfix list.
+
+        A location list belongs to its window, which brings two consequences:
+
+        - Invoking `++loclist` from a quickfix window or a terminal window
+          is refused with a warning, and the run falls back to the quickfix
+          list.
+        - Closing the window mid-run frees the list while the command is
+          still producing output. The remaining output is discarded and the
+          completion notification says so; the task itself is unaffected.
+
+        Auto-opening (|g:conduit_run_auto_open_quickfix|) uses |:lwindow|,
+        and only fires when the invoking window is still the current one.
+
 :Conduit! run {connection-key}                              *:Conduit-run-bang*
         Rerun the last completed task for this connection, preserving its
-        command, resolved working directory, and 'errorformat'. The bang is
-        attached to `:Conduit`; `:Conduit run!` is not supported.
+        command, resolved working directory, 'errorformat', and whether it
+        targeted a location list. The owning window is resolved afresh, so a
+        rerun follows the window you are in rather than the original one.
+        The bang is attached to `:Conduit`; `:Conduit run!` is not
+        supported.
 
                                                             *conduit-forwarding*
 SSH forwarding flags (`+L`, `+R`, `+D`, `+w`) are only applied to the one new
@@ -293,9 +324,10 @@ g:conduit_echo_socket				    *g:conduit_echo_socket*
         Default: false
 
 g:conduit_run_auto_open_quickfix             *g:conduit_run_auto_open_quickfix*
-        When true, run `:cwindow` after the current remote task completes.
-        When false, keep focus unchanged and include the quickfix list number
-        and `:copen` hint in the completion notification.
+        When true, run `:cwindow` after the current remote task completes,
+        or `:lwindow` for a |conduit-run-loclist| task. When false, keep
+        focus unchanged and include the list number and a `:copen` (or
+        `:lopen`) hint in the completion notification.
         Default: true
 
 ==============================================================================
