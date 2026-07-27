@@ -44,6 +44,7 @@ sleep 500m
 
 let qf = getqflist({'items': 0, 'context': 0, 'title': 0})
 call assert_match('^\[Conduit run testhost\]', qf.title)
+call assert_match('(finished, 1 entry)$', qf.title)
 call assert_equal('run', qf.context.conduit)
 call assert_equal(0, qf.context.exit_code)
 call assert_equal('/tmp', qf.context.cwd)
@@ -95,8 +96,9 @@ Conduit run testhost sleep 5
 sleep 100m
 Conduit stop run testhost *
 sleep 300m
-let stopped_qf = getqflist({'context': 0})
+let stopped_qf = getqflist({'context': 0, 'title': 0})
 call assert_equal(-1, stopped_qf.context.exit_code)
+call assert_match('(stopped, 0 entries)$', stopped_qf.title)
 
 if !empty(v:errors)
 	call writefile(v:errors, '/dev/stderr')

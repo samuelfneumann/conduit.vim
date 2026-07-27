@@ -2072,6 +2072,10 @@ def CurrentRemoteCwd(conn: Connection): string
 	return empty(remote_path) ? '' : fnamemodify(remote_path, ':h')
 enddef
 
+def RunTaskTitle(conn_key: string, command: string): string
+	return $'[Conduit run {conn_key}] {command}'
+enddef
+
 def RunTaskContext(task: RunTask, exit_code: number = -999): dict<any>
 	return {
 		conduit: 'run',
@@ -2284,15 +2288,19 @@ def FinishRunTask(task: RunTask, code: number)
 	endif
 
 	var state: string
+	var outcome: string
 	var timeout: number
 	if task.cancelled || code == -1
 		state = 'stopped'
+		outcome = 'stopped'
 		timeout = GetFailureTimeout()
 	elseif code == 0
 		state = 'finished'
+		outcome = 'finished'
 		timeout = GetSuccessTimeout()
 	else
 		state = $'failed (error: {code})'
+		outcome = $'exit {code}'
 		timeout = GetFailureTimeout()
 	endif
 
@@ -2311,9 +2319,17 @@ def FinishRunTask(task: RunTask, code: number)
 		timeout,
 	)
 
+	# Fold the outcome into the title so it survives in the quickfix
+	# statusline once the notification has timed out.
+	var title = RunTaskTitle(task.conn_key, task.command)
+		.. $' ({outcome}, {entry_count} {entry_label}'
+	if valid_count != entry_count
+		title ..= $', {valid_count} jumpable'
+	endif
+	title ..= ')'
 	setqflist([], 'a', {
 		id: task.qf_id,
-		title: qf.title,
+		title: title,
 		context: RunTaskContext(task, code),
 	})
 	redraw
@@ -2331,7 +2347,7 @@ enddef
 def StartRunTask(conn: Connection, spec: RunSpec)
 	const id = next_run_id
 	next_run_id += 1
-	const title = $'[Conduit run {conn.GetProfileKey()}] {spec.command}'
+	const title = RunTaskTitle(conn.GetProfileKey(), spec.command)
 	setqflist([], ' ', {
 		title: title,
 		context: {
