@@ -2083,6 +2083,18 @@ def RunTaskContext(task: RunTask, exit_code: number = -999): dict<any>
 	}
 enddef
 
+# Remote buffers are named after a hash, so the quickfix window would show
+# 78 characters of "conduit-file://<sha256>" where the path belongs. "module"
+# overrides that column without disturbing the buffer the entry jumps to.
+def RunDisplayPath(task: RunTask, remote_path: string): string
+	const root = substitute(task.resolved_cwd, '/\+$', '', '')
+	if empty(root) | return remote_path | endif
+	const prefix = root .. '/'
+	if stridx(remote_path, prefix) != 0 | return remote_path | endif
+	const relative = strpart(remote_path, strlen(prefix))
+	return empty(relative) ? remote_path : relative
+enddef
+
 def NormalizeRunQuickfix(task: RunTask)
 	task.DisarmNormalizeTimer()
 	if empty(task.resolved_cwd) || !connections->has_key(task.conn_key)
@@ -2108,6 +2120,7 @@ def NormalizeRunQuickfix(task: RunTask)
 			? simplify(name)
 			: simplify(task.resolved_cwd .. '/' .. name)
 		item.bufnr = RemoteBufferFor(connections[task.conn_key], remote_path)
+		item.module = RunDisplayPath(task, remote_path)
 		if item->has_key('filename') | item->remove('filename') | endif
 		changed = true
 	endfor
@@ -2184,6 +2197,7 @@ def PromoteRunFileEntries(task: RunTask)
 			continue
 		endif
 		items[index].bufnr = RemoteBufferFor(conn, item_paths[key])
+		items[index].module = RunDisplayPath(task, item_paths[key])
 		items[index].lnum = max([1, get(items[index], 'lnum', 0)])
 		items[index].col = max([1, get(items[index], 'col', 0)])
 		items[index].valid = 1

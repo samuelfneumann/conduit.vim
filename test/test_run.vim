@@ -50,6 +50,7 @@ call assert_equal('/tmp', qf.context.cwd)
 let valid = filter(copy(qf.items), {_, item -> get(item, 'valid', 0)})
 call assert_equal(1, len(valid))
 call assert_match('^conduit-file://', bufname(valid[0].bufnr))
+call assert_equal('main.c', valid[0].module)
 cfirst
 call assert_equal('remote fixture', getline(1))
 call assert_equal('testhost', b:conduit_profile_key)
@@ -83,6 +84,7 @@ call assert_equal(0, file_qf.context.exit_code)
 call assert_equal(1, len(file_qf.items))
 call assert_equal(1, file_qf.items[0].valid)
 call assert_match('^conduit-file://', bufname(file_qf.items[0].bufnr))
+call assert_equal('conduit-run-clickable-test', file_qf.items[0].module)
 call delete(clickable_file)
 
 Conduit run testhost sleep 5
