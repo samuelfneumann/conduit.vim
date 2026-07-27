@@ -2198,8 +2198,9 @@ def PromoteRunFileEntries(task: RunTask)
 		endif
 		items[index].bufnr = RemoteBufferFor(conn, item_paths[key])
 		items[index].module = RunDisplayPath(task, item_paths[key])
-		items[index].lnum = max([1, get(items[index], 'lnum', 0)])
-		items[index].col = max([1, get(items[index], 'col', 0)])
+		# Leave lnum/col at 0. The output named a file, not a position in it,
+		# so a synthetic "|1 col 1|" would only add noise; Vim still jumps to
+		# the file and leaves the cursor wherever it last was.
 		items[index].valid = 1
 		changed = true
 	endfor

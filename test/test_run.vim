@@ -85,6 +85,10 @@ call assert_equal(1, len(file_qf.items))
 call assert_equal(1, file_qf.items[0].valid)
 call assert_match('^conduit-file://', bufname(file_qf.items[0].bufnr))
 call assert_equal('conduit-run-clickable-test', file_qf.items[0].module)
+call assert_equal(0, file_qf.items[0].lnum)
+call assert_equal(0, file_qf.items[0].col)
+cfirst
+call assert_equal('/tmp/conduit-run-clickable-test', b:conduit_remote_path)
 call delete(clickable_file)
 
 Conduit run testhost sleep 5
