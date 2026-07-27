@@ -3218,10 +3218,20 @@ def MaybeRemoveOptions(CmdLine: string, suggestions: list<string>): list<string>
 enddef
 
 export def ConduitOptsCompl(ArgLead: string, CmdLine: string, CursorPos: number): list<string>
-	var short_opts = copy(ssh_option_specs)
+	const completed_last = CmdLine =~# '\s$'
+	var specified_opts = CmdLine
+		->split()[: completed_last ? -1 : -2]  # Don't filter currently typed option
+		->filter((_, v) => v =~# '^+' && !empty(v))
+		->map((_, v) => substitute(substitute(v, '^++\?', '', 'g'), '=.*$', '', 'g'))
+
+	var options = deepcopy(all_option_specs)->filter(
+		(_, v) => index(specified_opts, v.ShortName()) < 0 && index(specified_opts, v.long) < 0
+	)
+
+	var short_opts = copy(options)
 		->filter((_, spec) => spec.takes_value)
 		->map((_, spec) => spec.ShortName() .. '=')
-	var long_opts = all_option_specs
+	var long_opts = options
 		->mapnew((_, spec) => spec.long .. (spec.takes_value ? '=' : ''))
 
 	var suggestions: list<string>
@@ -3287,7 +3297,19 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 			if value !~# '^+' | return [] | endif
 		endfor
 
-		var suggestions = ['++cwd=', '++loclist'] + keys(connections)
+		var opts = ['cwd', 'loclist']
+		var specified = CmdLine
+			->split()
+			->filter((_, v) => v =~# '^+' && !empty(v))
+			->map((_, v) => substitute(substitute(v, '^++\?', '', 'g'), '=.*$', '', 'g'))
+
+		# Only grab non-specified suggestions, and format as `++OPT=`
+		opts = opts
+			->filter((_, v) => index(specified, v) < 0)
+			->map((_, v) => v ==# 'cwd' ? '++cwd=' : '++' .. v)
+
+		var suggestions = opts + keys(connections)
+
 		if empty(ArgLead) | return suggestions | endif
 		return matchfuzzy(suggestions, ArgLead)
 
