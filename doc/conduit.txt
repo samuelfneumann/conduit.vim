@@ -102,6 +102,26 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         jumpable, supporting commands such as `ls`, `find`, and
         `git ls-files`. Other output remains as non-jumpable quickfix text.
 
+                                                        *conduit-run-quickfix*
+        Jumpable entries name the remote file relative to the task's
+        working directory, falling back to the absolute remote path for
+        files outside it. This keeps the quickfix window readable, since
+        the underlying remote buffer is named after a hash. Entries
+        promoted from plain output carry no line or column number: the
+        output named a file, not a position inside it, so jumping to one
+        opens the file and leaves the cursor where it last was.
+
+        When the task completes, its outcome and entry counts are appended
+        to the quickfix title, which stays visible in the quickfix window
+        after the notification has timed out:
+>
+            [Conduit run dev] make (finished, 1 entry)
+            [Conduit run dev] make (stopped, 0 entries)
+            [Conduit run dev] make (exit 2, 12 entries, 3 jumpable)
+<
+        The jumpable count is only appended when it differs from the total
+        entry count.
+
 :Conduit! run {connection-key}                              *:Conduit-run-bang*
         Rerun the last completed task for this connection, preserving its
         command, resolved working directory, and 'errorformat'. The bang is
