@@ -2140,6 +2140,7 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 	var pos = 0
 	var cwd = ''
 	var loclist = false
+	var errorformat = ''
 	var token: string
 	[token, pos] = NextRunToken(raw, pos)
 
@@ -2156,24 +2157,59 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 				'Conduit! run only accepts a connection key',
 			)
 		endif
-		return {connection: token, command: '', cwd: '', loclist: false}
+		return {connection: token, command: '', cwd: '', loclist: false, errorformat: ''}
 	endif
 
 	while token =~# '^+'
-		if token =~# '^++cwd='
-			if !empty(cwd) || token ==# '++cwd='
+		if token !~# '^++'
+			throw error.Error.InvalidConduitOption.Format(
+				$'option "{token}" is unknown',
+			)
+		endif
+
+		const opt = token[2 :]
+		const eq_idx = stridx(opt, '=')
+		const has_eq = eq_idx >= 0
+		const name = has_eq ? opt[: eq_idx - 1] : opt
+
+		if name ==# 'cwd'
+			var value: string
+			if has_eq
+				value = opt[eq_idx + 1 :]
+			else
+				[value, pos] = NextRunToken(raw, pos)
+			endif
+			if !empty(cwd) || empty(value)
 				throw error.Error.InvalidConduitOption.Format(
 					'++cwd requires one non-empty value',
 				)
 			endif
-			cwd = token[len('++cwd=') : ]
-		elseif token ==# '++loclist'
+			cwd = value
+		elseif name ==# 'loclist'
+			if has_eq
+				throw error.Error.InvalidConduitOption.Format(
+					'++loclist does not take a value',
+				)
+			endif
 			if loclist
 				throw error.Error.InvalidConduitOption.Format(
 					'++loclist may only be given once',
 				)
 			endif
 			loclist = true
+		elseif name ==# 'errorformat'
+			var value: string
+			if has_eq
+				value = opt[eq_idx + 1 :]
+			else
+				[value, pos] = NextRunToken(raw, pos)
+			endif
+			if !empty(errorformat) || empty(value)
+				throw error.Error.InvalidConduitOption.Format(
+					'++errorformat requires one non-empty value',
+				)
+			endif
+			errorformat = value
 		else
 			throw error.Error.InvalidConduitOption.Format(
 				$'option "{token}" is unknown',
@@ -2191,7 +2227,13 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 		throw error.Error.InvalidExecuteCommand.Format('missing remote command')
 	endif
 
-	return {connection: token, command: command, cwd: cwd, loclist: loclist}
+	return {
+		connection: token,
+		command: command,
+		cwd: cwd,
+		loclist: loclist,
+		errorformat: errorformat,
+	}
 enddef
 
 def CurrentRemoteCwd(conn: Connection): string
@@ -2533,6 +2575,34 @@ def StartRunTask(conn: Connection, spec: RunSpec)
 	endif
 enddef
 
+# `EFM` is resolved in three steps: a user alias in g:conduit_errorformat, a
+# compiler plugin of that name (whose errorformat is grabbed without leaking
+# its buffer-local state past this call), or otherwise EFM itself, taken as a
+# literal 'errorformat' string.
+def ResolveRunErrorFormat(EFM: string): string
+	if g:conduit_errorformat->has_key(EFM)
+		return g:conduit_errorformat[EFM]
+	endif
+
+	if empty(globpath(&runtimepath, 'compiler/' .. EFM .. '.vim'))
+		return EFM
+	endif
+
+	const original_compiler = get(b:, 'current_compiler', '')
+	const original_efm = &l:errorformat
+	execute 'compiler ' .. EFM
+	const efm = &l:errorformat
+
+	if empty(original_compiler)
+		unlet! b:current_compiler
+	else
+		b:current_compiler = original_compiler
+	endif
+	&l:errorformat = original_efm
+
+	return efm
+enddef
+
 export def ConduitRunCmd(bang: bool, raw: string)
 	var parsed: dict<any>
 	try
@@ -2578,10 +2648,13 @@ export def ConduitRunCmd(bang: bool, raw: string)
 	endif
 
 	const cwd = empty(parsed.cwd) ? CurrentRemoteCwd(conn) : parsed.cwd
+	const efm = empty(parsed.errorformat)
+		? &errorformat
+		: ResolveRunErrorFormat(parsed.errorformat)
 	StartRunTask(conn, RunSpec.new(
 		parsed.command,
 		cwd,
-		&errorformat,
+		efm,
 		parsed.loclist,
 	))
 enddef
@@ -3306,7 +3379,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 			if value !~# '^+' | return [] | endif
 		endfor
 
-		var opts = ['cwd', 'loclist']
+		var opts = ['cwd', 'loclist', 'errorformat']
 		var specified = CmdLine
 			->split()
 			->filter((_, v) => v =~# '^+' && !empty(v))
@@ -3315,7 +3388,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		# Only grab non-specified suggestions, and format as `++OPT=`
 		opts = opts
 			->filter((_, v) => index(specified, v) < 0)
-			->map((_, v) => v ==# 'cwd' ? '++cwd=' : '++' .. v)
+			->map((_, v) => index(['cwd', 'errorformat'], v) >= 0 ? $'++{v}=' : '++' .. v)
 
 		var suggestions = opts + keys(connections)
 
