@@ -99,7 +99,7 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         `lvim` reverse tunnel (and any forwarding option you request) — see
         |conduit-forwarding|.
 
-:Conduit run [++cwd=DIR] [++loclist] {connection-key} {command}
+:Conduit run [++cwd=DIR] [++loclist] [++errorformat=EFM] {connection-key} {command}
                                                             *:Conduit-run*
         Run {command} through an existing Conduit SSH connection. Standard
         output and standard error are merged in order and appended live to a
@@ -109,10 +109,20 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         options, it uses Vim's `+` convention and appears before the
         connection key. If omitted, Conduit uses the current remote buffer's
         directory when it belongs to the same connection; otherwise it uses
-        the remote login home.
+        the remote login home. As with other value-taking Conduit options,
+        `=DIR` may instead be given as a space-separated value (`++cwd DIR`).
 
         `++loclist` sends the output to a location list instead — see
         |conduit-run-loclist|.
+
+        `++errorformat=EFM` (or `++errorformat EFM`) overrides 'errorformat'
+        for this run only, resolved in order — see |g:conduit_errorformat|:
+        1. A key in |g:conduit_errorformat|, an alias-to-errorformat
+           dictionary.
+        2. A compiler plugin named EFM (as in |:compiler|). Conduit loads it
+           to grab its 'errorformat', then restores whatever compiler state
+           the invoking window had before the run.
+        3. Otherwise, EFM itself, taken as a literal 'errorformat' string.
 
         Everything after {connection-key} is preserved as remote shell text.
         Escape a pipeline bar for Ex command parsing:
@@ -120,6 +130,7 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
             :Conduit run ++cwd=/srv/app dev make test
             :Conduit run dev pytest \| tee /tmp/test.log
             :Conduit run ++loclist dev make
+            :Conduit run ++errorformat=gcc dev make
 <
         Relative filenames parsed from diagnostics are resolved against the
         actual remote working directory. Quickfix jumps use the full Conduit
@@ -349,6 +360,11 @@ g:conduit_run_auto_open_quickfix             *g:conduit_run_auto_open_quickfix*
         or `:lwindow` for a |conduit-run-loclist| task. When false, keep
         focus unchanged and include the list number and a `:copen` (or
         `:lopen`) hint in the completion notification.
+
+g:conduit_errorformat                                       *g:conduit_errorformat*
+        Dictionary mapping user-chosen aliases to 'errorformat' strings, for
+        use with |:Conduit-run|'s `++errorformat=EFM` option.
+        Default: {}
         Default: true
 
 ==============================================================================

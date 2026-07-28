@@ -83,6 +83,9 @@ Then, read the docs:
 " Run a command remotely and stream diagnostics into quickfix
 :Conduit run ++cwd=/srv/app user@example.com make test
 
+" Override 'errorformat' for this run only
+:Conduit run ++errorformat=gcc user@example.com make test
+
 " Pipelines use Vim's escaped bar syntax
 :Conduit run user@example.com pytest \| tee /tmp/test.log
 
@@ -114,21 +117,30 @@ Then, read the docs:
 
 ### Remote tasks and quickfix
 
-`:Conduit run [++cwd=DIR] CONNECTION COMMAND` executes `COMMAND` through the
-existing multiplexed SSH connection. Standard output and standard error are
-merged in order and added live to a new quickfix list using the local
-`'errorformat'` value captured when the task starts. Relative diagnostic paths
-are resolved against the actual remote working directory, and quickfix jumps
-open the file through the exact Conduit profile that ran the task.
-Plain output lines that resolve to real remote files are also made jumpable,
-which makes commands such as `ls`, `find`, and `git ls-files` useful directly
-from quickfix. Other output remains visible as non-jumpable quickfix text.
+`:Conduit run [++cwd=DIR] [++errorformat=EFM] CONNECTION COMMAND` executes
+`COMMAND` through the existing multiplexed SSH connection. Standard output and
+standard error are merged in order and added live to a new quickfix list using
+the local `'errorformat'` value captured when the task starts. Relative
+diagnostic paths are resolved against the actual remote working directory, and
+quickfix jumps open the file through the exact Conduit profile that ran the
+task. Plain output lines that resolve to real remote files are also made
+jumpable, which makes commands such as `ls`, `find`, and `git ls-files` useful
+directly from quickfix. Other output remains visible as non-jumpable quickfix
+text.
 
 When `++cwd` is omitted, Conduit uses the directory of the current remote
 buffer if it belongs to the selected connection. Otherwise, the task starts in
 the remote login home. Options use Conduit's Vim-style `+` convention and must
 come before the connection; everything after the connection is untouched
-remote shell text.
+remote shell text. As elsewhere in Conduit, the `=` is optional — `++cwd DIR`
+and `++errorformat EFM` work as well as the `=`-joined form.
+
+`++errorformat=EFM` overrides `'errorformat'` for this run only. `EFM` is
+resolved as, in order: a key in `g:conduit_errorformat` (a dictionary mapping
+your own aliases to `'errorformat'` strings); a `:compiler` plugin named `EFM`,
+whose `'errorformat'` Conduit borrows without disturbing the invoking window's
+own compiler state; or, failing both, `EFM` itself taken as a literal
+`'errorformat'` string.
 
 Use `:Conduit! run CONNECTION` to rerun that connection's last completed task.
 The bang belongs to `:Conduit`, as required by Ex command syntax;
@@ -255,6 +267,14 @@ quickfix list:
 
 ```vim
 let g:conduit_run_auto_open_quickfix = false
+```
+
+Give short aliases to `'errorformat'` strings for use with `++errorformat=`:
+
+```vim
+let g:conduit_errorformat = {
+    \ 'django': '%A  File "%f", line %l, in %.%#',
+\ }
 ```
 
 ### Notifier Styling
