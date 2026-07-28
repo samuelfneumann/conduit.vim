@@ -1,4 +1,5 @@
 set rtp^=.
+set rtp^=./test/fixtures
 let g:conduit_use_popup = v:false
 let g:conduit_run_auto_open_quickfix = v:false
 let $CONDUIT_TEST_UPLOAD = tempname()
@@ -21,15 +22,54 @@ call assert_equal(v:true, loclist_parsed.loclist)
 call assert_equal('/srv', loclist_parsed.cwd)
 call assert_equal('make', loclist_parsed.command)
 
+let efm_parsed = conduit#ParseConduitRunArgs(
+	\ '++errorformat=myalias dev make',
+	\ v:false,
+	\ )
+call assert_equal('myalias', efm_parsed.errorformat)
+call assert_equal('make', efm_parsed.command)
+
+" The `=` is optional; ++cwd and ++errorformat also accept a space-separated
+" value.
+let space_parsed = conduit#ParseConduitRunArgs(
+	\ '++cwd /srv/my\ app ++errorformat myalias dev printf x | sed s/x/y/',
+	\ v:false,
+	\ )
+call assert_equal('/srv/my app', space_parsed.cwd)
+call assert_equal('myalias', space_parsed.errorformat)
+call assert_equal('dev', space_parsed.connection)
+call assert_equal('printf x | sed s/x/y/', space_parsed.command)
+
 let rerun = conduit#ParseConduitRunArgs('dev', v:true)
 call assert_equal(
-	\ {'connection': 'dev', 'command': '', 'cwd': '', 'loclist': v:false},
+	\ {'connection': 'dev', 'command': '', 'cwd': '', 'loclist': v:false, 'errorformat': ''},
 	\ rerun,
 	\ )
 
 try
 	call conduit#ParseConduitRunArgs('++loclist ++loclist dev echo ok', v:false)
 	call assert_report('repeated ++loclist was accepted')
+catch
+	call assert_match('C013:', v:exception)
+endtry
+
+try
+	call conduit#ParseConduitRunArgs('++errorformat=a ++errorformat=b dev echo ok', v:false)
+	call assert_report('repeated ++errorformat was accepted')
+catch
+	call assert_match('C013:', v:exception)
+endtry
+
+try
+	call conduit#ParseConduitRunArgs('++loclist=x dev echo ok', v:false)
+	call assert_report('++loclist=x was accepted')
+catch
+	call assert_match('C013:', v:exception)
+endtry
+
+try
+	call conduit#ParseConduitRunArgs('++cwd', v:false)
+	call assert_report('valueless trailing ++cwd was accepted')
 catch
 	call assert_match('C013:', v:exception)
 endtry
@@ -48,7 +88,7 @@ catch
 endtry
 
 call assert_equal(
-	\ ['++cwd=', '++loclist'],
+	\ ['++cwd=', '++loclist', '++errorformat='],
 	\ conduit#ConduitCompl('', 'Conduit run ', strlen('Conduit run ') + 1),
 	\ )
 call assert_equal(
@@ -110,6 +150,42 @@ call assert_equal(0, file_qf.items[0].col)
 cfirst
 call assert_equal('/tmp/conduit-run-clickable-test', b:conduit_remote_path)
 call delete(clickable_file)
+
+" ++errorformat=ALIAS resolves through g:conduit_errorformat first.
+let g:conduit_errorformat = {'myalias': 'ALIAS:%f:%l:%m'}
+Conduit run ++cwd=/tmp ++errorformat=myalias testhost echo ALIAS:alias.c:9:boom
+sleep 500m
+let alias_qf = getqflist({'items': 0, 'context': 0})
+call assert_equal(0, alias_qf.context.exit_code)
+call assert_equal(1, len(alias_qf.items))
+call assert_equal(1, alias_qf.items[0].valid)
+call assert_equal('alias.c', alias_qf.items[0].module)
+call assert_equal(9, alias_qf.items[0].lnum)
+
+" ++errorformat=NAME falls back to a compiler plugin of that name, and
+" leaves the invoking window's compiler state untouched afterwards.
+let g:before_efm = &l:errorformat
+let g:before_compiler = get(b:, 'current_compiler', '')
+Conduit run ++cwd=/tmp ++errorformat=conduittest testhost echo FIXTURE:fixture.c:4:oops
+sleep 500m
+let compiler_qf = getqflist({'items': 0, 'context': 0})
+call assert_equal(0, compiler_qf.context.exit_code)
+call assert_equal(1, len(compiler_qf.items))
+call assert_equal(1, compiler_qf.items[0].valid)
+call assert_equal('fixture.c', compiler_qf.items[0].module)
+call assert_equal(4, compiler_qf.items[0].lnum)
+call assert_equal(g:before_efm, &l:errorformat)
+call assert_equal(g:before_compiler, get(b:, 'current_compiler', ''))
+
+" Otherwise, ++errorformat is parsed as a literal 'errorformat' string.
+Conduit run ++cwd=/tmp ++errorformat=%f#%l#%m testhost echo literal.c#6#bad
+sleep 500m
+let literal_qf = getqflist({'items': 0, 'context': 0})
+call assert_equal(0, literal_qf.context.exit_code)
+call assert_equal(1, len(literal_qf.items))
+call assert_equal(1, literal_qf.items[0].valid)
+call assert_equal('literal.c', literal_qf.items[0].module)
+call assert_equal(6, literal_qf.items[0].lnum)
 
 " ++loclist targets the invoking window's location list, not the quickfix list.
 let qf_id_before = getqflist({'id': 0}).id
