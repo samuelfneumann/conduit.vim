@@ -3,8 +3,9 @@
                                  CONDUIT.VIM                                 *conduit*
 
 Conduit.vim provides seamless integration between your local Vim instance and
-remote SSH sessions. It allows you to open files from a remote shell directly
-in your local Vim, and perform background file transfers (get/put) with
+remote SSH sessions (currently supports zsh, bash, and sh) in the vim
+terminal. It allows you to open files from a remote shell directly in your
+local Vim, and perform background file transfers (get/put/mget/mput) with
 progress notifications.
 
 NOTE: This plugin requires Vim 9.1 or later with +job, +popupwin, and
@@ -312,7 +313,12 @@ g:conduit_fallback_shell                                    *g:conduit_fallback_
         Default: "bash"
 
 g:conduit_host2shell                                        *g:conduit_host2shell*
-        Dictionary mapping hostnames to remote shell paths.
+        Dictionary mapping hostnames to remote shells or shell paths. Only
+	supports zsh, bash, or sh. If specifying a shell name only (e.g.
+	"zsh", "bash"), it must exist on the remote servers's `PATH`. If a
+	path is specified (e.g. "/usr/bin/bash"), the shell name is assumed to
+	be the path basename. Does not fallback to `g:conduit_fallback_shell`
+	on error.
         Default: {}
 
 g:conduit_default_control_persist                           *g:conduit_default_control_persist*

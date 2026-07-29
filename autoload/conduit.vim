@@ -42,6 +42,8 @@ enddef
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
+const avaliable_shells = ['zsh', 'bash', 'sh']
+
 const modifiers = [
 	"tab",
 	"vert", "vertical",
@@ -158,6 +160,31 @@ export class Connection
 
 	def ConduitShell(): string
 		return get(Connection.host2shell, this.host, Connection.fallback_shell)
+	enddef
+
+	def ParseShellName(): string
+		return fnamemodify(this.ConduitShell(), ':t')
+	enddef
+
+	def ShellAvailable(): bool
+		const shell = this.ParseShellName()
+		if empty(shell) | return false | endif
+		return !empty(filter(deepcopy(avaliable_shells), (_, sh) => shell ==# sh))
+	enddef
+
+	def ConduitShellStartupCmd(remote_rc: string, echoerr: bool = false): list<string>
+		const shell = this.ParseShellName()
+		if shell ==# 'zsh'
+			const base = fnamemodify(remote_rc, ':h')
+			return [$'ZDOTDIR={base}', shell]
+		elseif shell ==# 'bash' || shell ==# 'sh'
+			return [shell, '--rcfile', remote_rc, '-i']
+		else
+			if echoerr
+				echoerr error.Error.UnsupportedShell.Format($'unsupported shell {shell}')
+			endif
+			return []
+		endif
 	enddef
 
 	def GetSshOptions(): list<string>
@@ -2898,6 +2925,19 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 		return
 	endtry
 
+	if !conn.ShellAvailable()
+		notifier.Dismiss(notif)
+		notifier.Dismiss(
+			notifier.Send(
+				$"Conduit does not support '{conn.ConduitShell()}'",
+				{prefix: "‹×› Unsupported shell"}
+			),
+			GetFailureTimeout(),
+		)
+		return
+	endif
+
+
 	var OpenSession = () => {
 		OpenConduitControlMaster(conn, (open_control_master_err_code, ssh_error) => {
 			if open_control_master_err_code != 0
@@ -2932,8 +2972,22 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 			var remote_rc   = conn.GetRemoteRCPath()
 			var sock_path = conn.GetLocalReverseTunnelSocketPath()
 
+			const shell_startup_cmd = conn.ConduitShellStartupCmd(remote_rc)
+			if empty(shell_startup_cmd) 
+				notifier.Dismiss(notif)
+				notifier.Dismiss(
+					notifier.Send(
+						$"Conduit does not support '{conn.ConduitShell()}'",
+						{prefix: "‹×› Unsupported shell"}
+					),
+					GetFailureTimeout(),
+				)
+				return
+			endif
+
 			notifier.UpdateLoading(notif, $"Deploying rc file")
 			redraw
+
 			DeployRcfile(
 				conn,
 				() => {
@@ -2991,12 +3045,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 							'-o', 'ExitOnForwardFailure=yes',
 							'-R', tunnel,
 						],
-						[
-							conn.ConduitShell(),
-							'--rcfile',
-							remote_rc,
-							'-i',
-						], 
+						shell_startup_cmd,
 						true,
 					)
 
