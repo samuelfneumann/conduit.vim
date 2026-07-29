@@ -365,6 +365,9 @@ export class Op
 	enddef
 endclass
 
+# Everything needed to (re)start a run: the command, where it ran, its
+# errorformat, and which list it targets. Captured on every run so `Conduit!
+# run` can replay the previous invocation verbatim.
 class RunSpec
 	var command: string
 	var cwd: string
@@ -388,7 +391,9 @@ const run_normalize_delay = 50
 
 # Owns where a run's parsed output lands and when its deferred normalize pass
 # runs. Every setqflist()/getqflist() call for a run goes through here, so the
-# task itself never names a list API.
+# task itself never names a list API. Wraps whichever of the quickfix or
+# location list APIs applies, so RunTask can stay agnostic to which one it is
+# writing.
 class RunListSink
 	# When true the run feeds the location list of `winid`; otherwise it feeds
 	# the quickfix list and `winid` is unused. A location list is addressed by
@@ -421,6 +426,7 @@ class RunListSink
 		return !this.use_loclist || !empty(getwininfo(this.winid))
 	enddef
 
+	# Common write path for both list kinds; a no-op once IsAlive() is false.
 	def Set(action: string, what: dict<any>)
 		if !this.IsAlive() | return | endif
 		if this.use_loclist
@@ -430,6 +436,7 @@ class RunListSink
 		endif
 	enddef
 
+	# Common read path for both list kinds; returns {} once IsAlive() is false.
 	def Get(what: dict<any>): dict<any>
 		if !this.IsAlive() | return {} | endif
 		return this.use_loclist
@@ -475,10 +482,13 @@ class RunListSink
 		return this.use_loclist ? ':lopen' : ':copen'
 	enddef
 
+	# Parses `lines` against this run's efm and appends the resulting entries.
 	def Append(lines: list<string>)
 		this.Set('a', {id: this.id, lines: lines, efm: this.efm})
 	enddef
 
+	# Wholesale-replaces the list's items, e.g. after rewriting entries to
+	# point at remote-backed buffers.
 	def Replace(items: list<dict<any>>, title: string, context: dict<any>)
 		this.Set('r', {
 			id: this.id,
@@ -488,6 +498,7 @@ class RunListSink
 		})
 	enddef
 
+	# Sets the final title/context once a run has ended, without touching items.
 	def Finish(title: string, context: dict<any>)
 		this.Set('a', {id: this.id, title: title, context: context})
 	enddef
@@ -500,11 +511,15 @@ class RunListSink
 		this.normalized = count
 	enddef
 
+	# Arms the coalesced normalize pass; a timer already pending is left alone
+	# so a burst of output only schedules one rewrite.
 	def Schedule(Pass: func)
 		if this.timer >= 0 | return | endif
 		this.timer = timer_start(run_normalize_delay, (_) => Pass())
 	enddef
 
+	# Cancels any pending normalize pass, e.g. when the task is finishing and
+	# is about to do one last synchronous rewrite itself.
 	def Disarm()
 		if this.timer >= 0
 			timer_stop(this.timer)
@@ -513,12 +528,18 @@ class RunListSink
 	enddef
 endclass
 
+# A single in-flight (or just-finished) `:Conduit run` invocation: the ssh
+# job driving it, the quickfix/location list it feeds via `sink`, and enough
+# state to report/rerun it once the job exits.
 class RunTask
 	var id: number
 	var conn_key: string
 	var job: job
 	var command: string
+	# The cwd the caller requested (may be empty); use resolved_cwd once known.
 	var requested_cwd: string
+	# The cwd the remote command actually ran in, learned from the printf
+	# marker the job prints before running the command. Empty until then.
 	var resolved_cwd: string
 	var efm: string
 	var sink: RunListSink
@@ -560,6 +581,8 @@ class RunTask
 		this.line_count += 1
 	enddef
 
+	# Marks the task as user-cancelled so FinishRunTask() reports "stopped"
+	# rather than treating the job's exit code as a failure.
 	def Cancel()
 		this.cancelled = true
 	enddef
@@ -1139,11 +1162,67 @@ enddef
 def GetNetrwRsyncCmd(conn: Connection): string
 	var rsh_args = GetSshArgs(conn, false)
 	rsh_args->extend(['-S', conn.GetConduitControlPath()])
-
 	const parts = ['rsync', '-az', '-q', '--rsh', ShellJoin(rsh_args)]
 	return ShellJoin(parts)
 enddef
 
+# Builds the netrw-style `scp://host/path` URL used to name a buffer opened
+# via `lvim`/OpenFile, so netrw's own scp handling can locate it.
+def GetScpTarget(conn: Connection, remote_path: string): string
+	const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
+	return 'scp://' .. conn.host .. '/' .. abs
+enddef
+
+# Builds the netrw-style `rsync://HOST/PATH` URL used to name a buffer opened
+# via `lvim`/OpenFile, so netrw can locate and open it.
+def GetRsyncTarget(conn: Connection, remote_path: string): string
+	const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
+	return $'rsync://' .. conn.host .. '/' .. abs
+enddef
+
+# Restores g:netrw_scp_cmd to what it was (or unsets it) after OpenFile()
+# temporarily points it at Conduit's control-socket-backed scp.
+def RestoreNetrwScpCmd(existed: bool, before: string)
+	if existed
+		g:netrw_scp_cmd = before
+	elseif exists('g:netrw_scp_cmd')
+		unlet g:netrw_scp_cmd
+	endif
+enddef
+
+# Restores g:netrw_rsync_cmd to what it was (or unsets it) after OpenFile()
+# temporarily points it at Conduit's control-socket-backed rsync.
+def RestoreNetrwRsyncCmd(existed: bool, before: string)
+	if existed
+		g:netrw_rsync_cmd = before
+	elseif exists('g:netrw_rsync_cmd')
+		unlet g:netrw_rsync_cmd
+	endif
+enddef
+
+# Restores g:netrw_rsync_sep to what it was (or unsets it) after OpenFile()
+# temporarily points it at Conduit's control-socket-backed rsync.
+def RestoreNetrwRsyncSep(existed: bool, before: string)
+	if existed
+		g:netrw_rsync_sep = before
+	elseif exists('g:netrw_rsync_sep')
+		unlet g:netrw_rsync_sep
+	endif
+enddef
+
+# Tags `bufnr` with the connection profile and remote path it is backed by,
+# so ConduitRemoteReadCmd()/WriteCmd() and run's quickfix promotion can later
+# resolve which connection and file the buffer belongs to.
+def SetRemoteBufferMetadata(bufnr: number, conn: Connection, remote_path: string)
+	setbufvar(bufnr, 'conduit_profile_key', conn.GetProfileKey())
+	setbufvar(bufnr, 'conduit_remote_path', remote_path)
+enddef
+
+# Returns the (lazily created) buffer backing `remote_path` on `conn`, keyed
+# by connection profile + path so the same remote file always reuses one
+# buffer. Named as a content hash (rather than the scp:// URL OpenFile()
+# uses) since these buffers are only ever reached by jumping from a run's
+# quickfix entries, never opened directly by the user.
 def RemoteBufferFor(conn: Connection, remote_path: string): number
 	const path = simplify(remote_path)
 	const registry_key = conn.GetProfileKey() .. "\x1f" .. path
@@ -1158,6 +1237,8 @@ def RemoteBufferFor(conn: Connection, remote_path: string): number
 	return bufnr
 enddef
 
+# Resolves the current buffer's Conduit connection, for use inside the
+# BufReadCmd/BufWriteCmd autocmds registered on conduit-file:// buffers.
 def GetRemoteBufferConnection(): Connection
 	const key = getbufvar(bufnr(), 'conduit_profile_key', '')
 	if empty(key) || !connections->has_key(key)
@@ -1166,6 +1247,9 @@ def GetRemoteBufferConnection(): Connection
 	return connections[key]
 enddef
 
+# BufReadCmd for conduit-file:// buffers: scp's the remote path down to a
+# temp file over the buffer's connection profile and loads it in place,
+# preserving trailing-EOL state so ConduitRemoteWriteCmd() can round-trip it.
 export def ConduitRemoteReadCmd()
 	var local_file = ''
 	try
@@ -1214,6 +1298,9 @@ export def ConduitRemoteReadCmd()
 	endtry
 enddef
 
+# BufWriteCmd for conduit-file:// buffers: writes the buffer to a temp file
+# and scp's it back up over the buffer's connection profile, restoring the
+# buffer's modified state on failure.
 export def ConduitRemoteWriteCmd()
 	const was_modified = &modified
 	var local_file = ''
@@ -2117,6 +2204,10 @@ enddef
 
 # ── Remote Task Runner ───────────────────────────────────────────────────────
 
+# Reads one whitespace-delimited token from `raw` starting at `start`,
+# skipping leading whitespace and un-escaping `\<char>` so a run command can
+# contain literal spaces (e.g. `++cwd`, then a path with a backslash-escaped
+# space). Returns the token and the position just past it.
 def NextRunToken(raw: string, start: number): tuple<string, number>
 	var pos = start
 	while pos < strlen(raw) && raw[pos] =~# '\s'
@@ -2136,6 +2227,11 @@ def NextRunToken(raw: string, start: number): tuple<string, number>
 	return (token, pos)
 enddef
 
+# Parses the argument string of `:Conduit[!] run` into
+# {connection, command, cwd, loclist, errorformat}. With `bang`, `raw` is
+# just a connection key (reruns reuse the previous command/cwd/efm verbatim
+# and reject any trailing text); otherwise it is
+# `[++cwd=...] [++loclist] [++errorformat=...] connection command...`.
 export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 	var pos = 0
 	var cwd = ''
@@ -2236,6 +2332,9 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 	}
 enddef
 
+# Default cwd for a run with no explicit ++cwd: the directory of the
+# current buffer's remote file, if it's a conduit-file:// buffer on this
+# same connection; otherwise empty (the remote shell's own default).
 def CurrentRemoteCwd(conn: Connection): string
 	const bufnr = bufnr()
 	if getbufvar(bufnr, 'conduit_profile_key', '') !=# conn.GetProfileKey()
@@ -2249,6 +2348,10 @@ def RunTaskTitle(conn_key: string, command: string): string
 	return $'[Conduit run {conn_key}] {command}'
 enddef
 
+# Context stored on the run's quickfix/location list so tooling (and a
+# human reading `:echo getqflist({context: 0})`) can identify which task,
+# connection, command, and cwd an entry came from. `exit_code` defaults to
+# a sentinel meaning "still running".
 def RunTaskContext(task: RunTask, exit_code: number = -999): dict<any>
 	return {
 		conduit: 'run',
@@ -2272,6 +2375,13 @@ def RunDisplayPath(task: RunTask, remote_path: string): string
 	return empty(relative) ? remote_path : relative
 enddef
 
+# Rewrites quickfix entries whose errorformat-parsed "filename" names a
+# plain file the run's own working directory (a local path, from the run's
+# perspective on the remote host) rather than a real local buffer: points
+# each such entry at a lazily-created remote-backed buffer instead, so
+# jumping to it opens the actual remote file over Conduit's connection.
+# Only rewrites entries this sink hasn't already normalized, tracked via
+# task.sink.normalized, so a long-running task doesn't re-walk old entries.
 def NormalizeRunQuickfix(task: RunTask)
 	task.sink.Disarm()
 	if empty(task.resolved_cwd) || !connections->has_key(task.conn_key)
@@ -2308,11 +2418,18 @@ def NormalizeRunQuickfix(task: RunTask)
 	endif
 enddef
 
+# Arms the coalesced NormalizeRunQuickfix() pass for this task, once its
+# resolved_cwd is known (nothing to normalize against before then).
 def ScheduleNormalizeRunQuickfix(task: RunTask)
 	if empty(task.resolved_cwd) | return | endif
 	task.sink.Schedule(() => NormalizeRunQuickfix(task))
 enddef
 
+# After a run finishes, upgrades plain-text quickfix lines (output the
+# errorformat didn't parse into a filename/position) that happen to name an
+# existing remote file into valid, jumpable entries pointing at that file.
+# Runs one batched remote `[ -f ... ]` check per up-to-200 candidates rather
+# than one ssh round-trip per line.
 def PromoteRunFileEntries(task: RunTask)
 	if empty(task.resolved_cwd) || !connections->has_key(task.conn_key)
 		return
@@ -2376,16 +2493,24 @@ def PromoteRunFileEntries(task: RunTask)
 	endif
 enddef
 
+# Appends one line of run output as a quickfix/location list entry.
 def AppendRunOutput(task: RunTask, line: string)
 	task.AddLine()
 	task.sink.Append([line])
 	ScheduleNormalizeRunQuickfix(task)
 enddef
 
+# Sentinel prefix StartRunTask() has the remote shell print, tagged with the
+# task id so OnRunLine() can recognize its own marker line even if the
+# command's own output happens to contain similar bytes.
 def RunControlPrefix(task: RunTask): string
 	return $"\x1eCONDUIT_CWD_{task.id}:"
 enddef
 
+# out_cb for a run's job: recognizes and strips the resolved-cwd marker line
+# StartRunTask() has the remote shell emit before running the command
+# (everything after it on that line is real output and still gets
+# appended), and otherwise appends the line as ordinary output.
 def OnRunLine(task: RunTask, line: string)
 	const prefix = RunControlPrefix(task)
 	const start = stridx(line, prefix)
@@ -2404,6 +2529,8 @@ def OnRunLine(task: RunTask, line: string)
 	AppendRunOutput(task, line)
 enddef
 
+# Whether a finished run should auto-open its quickfix/location list,
+# per g:conduit_run_auto_open_quickfix (default true).
 def RunAutoOpenQuickfix(): bool
 	const value = get(g:, 'conduit_run_auto_open_quickfix', true)
 	if type(value) != v:t_bool
@@ -2413,6 +2540,9 @@ def RunAutoOpenQuickfix(): bool
 	return value
 enddef
 
+# exit_cb for a run's job: records it for `Conduit! run`, does the final
+# (synchronous) file-entry promotion and quickfix normalization passes, then
+# reports the outcome via notification and folds it into the list's title.
 def FinishRunTask(task: RunTask, code: number)
 	const idx = run_tasks->index(task)
 	if idx >= 0 | run_tasks->remove(idx) | endif
@@ -2492,6 +2622,10 @@ def FinishRunTask(task: RunTask, code: number)
 	redraw
 enddef
 
+# Builds the `cd` remote-shell fragment for a run's requested cwd: bare `cd`
+# (to $HOME) for empty/`~`, an explicit `$HOME/...` expansion for `~/...`
+# (the remote shell may not be interactive enough to expand `~` itself),
+# and a plain quoted `cd --` otherwise.
 def RemoteCdCommand(cwd: string): string
 	if empty(cwd) || cwd ==# '~'
 		return 'cd'
@@ -2516,6 +2650,12 @@ def ResolveRunTarget(spec: RunSpec): RunListSink
 	return RunListSink.new(spec.efm, true, winid)
 enddef
 
+# Starts a run of `spec` over `conn`: creates its list sink and RunTask,
+# then launches the remote command via ssh. The remote shell is asked to
+# `cd` to the requested directory, print a resolved-cwd marker (see
+# RunControlPrefix()) so the task learns its actual cwd even when none was
+# requested, and only then run the command, so output and cwd resolution
+# arrive over the same job/pipe in a well-defined order.
 def StartRunTask(conn: Connection, spec: RunSpec)
 	const id = next_run_id
 	next_run_id += 1
@@ -2603,6 +2743,9 @@ def ResolveRunErrorFormat(EFM: string): string
 	return efm
 enddef
 
+# Entry point for `:Conduit[!] run`: parses `raw`, resolves the target
+# connection, and either replays the last run for that connection (bang,
+# refusing if a matching task is already in flight) or starts a fresh one.
 export def ConduitRunCmd(bang: bool, raw: string)
 	var parsed: dict<any>
 	try
@@ -3086,6 +3229,10 @@ enddef
 
 # ── Vim Command Interface ────────────────────────────────────────────────────
 
+# Entry point for the `:Conduit` command. `run` gets its own arg-parsing
+# (it accepts a free-form remote command, which doesn't fit the space-split
+# args every other subcommand uses) and is dispatched here before falling
+# through to ConduitCmdList() for everything else.
 export def ConduitDispatch(
 	deploy_only: bool,
 	bang: bool,
