@@ -2850,6 +2850,7 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 
 	var term_bufnr = -1
 	var shown = false
+	var err_msg: string
 	term_bufnr = term_start(GetSshCommandArgs(
 		conn,
 		[
@@ -2871,6 +2872,12 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 				execute 'sbuffer ' .. term_bufnr
 			endif
 		},
+		err_cb: (_, msg: string) => {
+			err_msg = msg
+			echohl ErrorMsg
+			echom msg
+			echohl clear
+		},
 		exit_cb: (_, code) => {
 			var msg: string
 			if code == -1
@@ -2878,11 +2885,11 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 			elseif code == 0
 				msg = 'Authentication successful'
 			else
-				msg = $'Failed to start ssh (error: {code})'  
+				msg = !empty(err_msg) ? err_msg : 'unknown error'
 			endif
 			Callback(code, msg)
 
-            if bufexists(term_bufnr) && code == 0 # Close term on success
+            if bufexists(term_bufnr)
                 execute $'bwipeout! {term_bufnr}'
             endif
 		},
@@ -2944,12 +2951,16 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 				const msg = empty(ssh_error)
 					? $"ssh exited with error {open_control_master_err_code}"
 					: ssh_error->split("\n")->join(" ‹|› ")
-				notifier.StopLoading(
-					notif,
-					$"‹×› {msg}",
-					false,
+
+				notifier.Dismiss(notif)
+				notifier.Dismiss(
+					notifier.Send(
+						msg,
+						{prefix: "‹×› Failed to start ssh", subprefix: $"(error: {open_control_master_err_code})"},
+					), 
 					GetFailureTimeout(),
 				)
+
 				redraw
 				return
 			endif
