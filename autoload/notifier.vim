@@ -520,7 +520,7 @@ def GetCarouselEndPause(): number
 	if type(pause) != v:t_number && type(pause) != v:t_float
 		return 0
 	endif
-	return max([0, float2nr(pause * 1000)])
+	return max([0, float2nr(pause)])
 enddef
 
 def AddFrameHighlight(winid: number, bufnr: number, linenr: number, text: string)
