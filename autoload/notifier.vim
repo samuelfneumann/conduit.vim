@@ -6,7 +6,7 @@ import autoload 'error.vim'
 g:notifier_maxwidth = get(g:, 'notifier_maxwidth', &columns / 2)
 g:notifier_overflow = get(g:, 'notifier_overflow', 'carousel')
 g:notifier_carousel_interval = get(g:, 'notifier_carousel_interval', 100)
-g:notifier_carousel_end_pause = get(g:, 'notifier_carousel_end_pause', 300)
+g:notifier_carousel_end_pause = get(g:, 'notifier_carousel_end_pause', 1000)
 const pbar_width = min([20, max([3, float2nr(floor(g:notifier_maxwidth / 3))])])
 
 var pipe: string = '|'
@@ -520,7 +520,7 @@ def GetCarouselEndPause(): number
 	if type(pause) != v:t_number && type(pause) != v:t_float
 		return 0
 	endif
-	return max([0, float2nr(pause * 1000)])
+	return max([0, float2nr(pause)])
 enddef
 
 def AddFrameHighlight(winid: number, bufnr: number, linenr: number, text: string)
