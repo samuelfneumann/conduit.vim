@@ -74,7 +74,12 @@ command! -bar -nargs=+ ConduitStopPut {
 augroup ConduitOpen
     autocmd!
     autocmd VimLeave * conduit.MaybeCleanup(conduit.Connection.null_connection, true, true)
-    autocmd BufReadCmd conduit://* call conduit.ConduitOpenCmd(false, true, '', bufname("%")[len("conduit://") : ])
+    autocmd BufReadCmd conduit://* {
+		setlocal buftype=nofile bufhidden=wipe noswapfile
+		call conduit.ConduitOpenCmd(false, true, '', bufname("%")[len("conduit://") : ])
+	}
+    autocmd BufReadCmd conduit-file://* conduit.ConduitRemoteReadCmd()
+    autocmd BufWriteCmd conduit-file://* conduit.ConduitRemoteWriteCmd()
 augroup END
 
 export def g:ConduitStatus(): string
