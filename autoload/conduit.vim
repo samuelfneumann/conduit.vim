@@ -1802,7 +1802,7 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 	)
 enddef
 
-def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void): job
+def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(number): void): job
 	const quoted_joined_file_ops = mapnew(all_ops, (_, v) => $'"{v}"')->join('|')
 
     var rc_lines = [
@@ -1946,7 +1946,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
                     if status == 0
                         OnSuccess()
                     else
-                        OnErr()
+                        OnErr(status)
                     endif
                     # delete(local_rc)
                 }
@@ -1961,7 +1961,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
             {
                 exit_cb: (_, status) => {
                     if status != 0
-                        OnErr()
+                        OnErr(status)
                         delete(local_rc)
                         return
                     endif
@@ -1970,7 +1970,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
 						if chmod_status == 0
 							OnSuccess()
 						else
-							OnErr()
+							OnErr(status)
 						endif
 						delete(local_rc)
 					}
@@ -3103,9 +3103,9 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 					})
 					redraw
 				},
-				() => {
+				(code) => {
 					notifier.StopLoading(
-						notif, $"‹×› Failed", false, GetFailureTimeout(),
+						notif, $"‹×› Failed (error: {code})", false, GetFailureTimeout(),
 					)
 					MaybeCleanup(conn)
 					redraw
