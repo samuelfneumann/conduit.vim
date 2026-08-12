@@ -2223,7 +2223,7 @@ def Warn(msg: string)
 	if g:conduit_use_popup
 		notifier.Send($'‹×› {msg}')
 	else
-		echohl WarningMsg
+		echohl NotifyWarning
 		echom msg
 		echohl None
 	endif
