@@ -2229,6 +2229,22 @@ def Warn(msg: string)
 	endif
 enddef
 
+def EchoSuccess(msgs: list<string>)
+	if empty(msgs) | return | endif
+
+	echohl NotifySuccess
+	for msg in msgs | echom msg | endfor
+	echohl clear
+enddef
+
+def EchoError(msgs: list<string>)
+	if empty(msgs) | return | endif
+
+	echohl NotifyError
+	for msg in msgs | echom msg | endfor
+	echohl clear
+enddef
+
 # ── Remote Task Runner ───────────────────────────────────────────────────────
 
 # Reads one whitespace-delimited token from `raw` starting at `start`,
