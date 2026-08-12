@@ -1596,10 +1596,14 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 	var scp_op: Op
 	var scp_ops = get ? g:conduit_get_ops : g:conduit_put_ops
 
+	var err_msgs: list<string> = []
 	const j = job_start(
 		scp_cmd, {
 		out_io: "pipe",
 		out_mode: "raw",
+		err_cb: (_, msg) => {
+			err_msgs->add(msg)
+		},
 		out_cb: (_, msg) => {
 			# Throttle
 			const seconds_since_last_run = reltime(last_run)->reltimefloat()
@@ -1643,7 +1647,7 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 			else
 				notifier.Modify(
 					notif,
-					$"‹×› {notif_suffix}",
+					$"‹×› {err_msgs->join(' ‹|› ')}",
 					{subprefix: $'[failed (error: {code})]'},
 				)
 				notifier.Dismiss(notif, GetFailureTimeout())
@@ -2866,7 +2870,7 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 
 	var term_bufnr = -1
 	var shown = false
-	var err_msg: string
+	var err_msgs: list<string>
 	term_bufnr = term_start(GetSshCommandArgs(
 		conn,
 		[
@@ -2889,10 +2893,7 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 			endif
 		},
 		err_cb: (_, msg: string) => {
-			err_msg = msg
-			echohl ErrorMsg
-			echom msg
-			echohl clear
+			err_msgs->add(msg->trim())
 		},
 		exit_cb: (_, code) => {
 			var msg: string
@@ -2900,8 +2901,10 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
 				msg = 'Authentication cancelled'
 			elseif code == 0
 				msg = 'Authentication successful'
+				EchoSuccess(err_msgs)
 			else
-				msg = !empty(err_msg) ? err_msg : 'unknown error'
+				msg = $'Authentication failed (error: {code}): {err_msgs->join(' ‹|› ')}'
+				EchoError(err_msgs)
 			endif
 			Callback(code, msg)
 
