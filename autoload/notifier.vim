@@ -267,6 +267,24 @@ class Basic extends Notification
 	enddef
 endclass
 
+class NotificationHistoryEntry
+	const text: string
+	const kind: NotificationKind
+	const frame_len: number
+	const fixed_prefix: string
+	const prefix: string
+	const subprefix: string
+
+	def new(text: string, notif: Notification)
+		this.text = text
+		this.kind = notif.Kind()
+		this.frame_len = strcharlen(notif.Frame())
+		this.fixed_prefix = notif.FixedPrefix()
+		this.prefix = notif.prefix
+		this.subprefix = notif.subprefix
+	enddef
+endclass
+
 class NotificationManager
 	static const Instance = NotificationManager.new()
 
@@ -276,23 +294,20 @@ class NotificationManager
 	var active_notifs: list<number> = []
 
 	# History Tracking
-	var history: list<string> = []
-	var notif_texts: dict<string> = {} # winid (string) -> latest message text
+	var history: list<NotificationHistoryEntry> = []
 	const time_format = "%H:%M:%S"
 	var history_limit: number = 100
 
 	def new()
 	enddef
 	
-	def UpdateLatestMessage(winid: number, msg: string)
-		const id_str = string(winid)
-		this.notif_texts[id_str] = msg
-	enddef
-
 	def LogHistory(winid: number)
-		const id_str = string(winid)
-        const time_str = strftime(this.time_format)
-        add(this.history, printf("[%s] %s", time_str, this.notif_texts[id_str]))
+		const notif = this.GetNotificationBy(winid)
+		const time_str = strftime(this.time_format)
+		add(this.history, NotificationHistoryEntry.new(
+			printf("[%s] %s", time_str, notif.Formatted()),
+			notif,
+		))
 
         # Keep history to a maximum of `history_limit` entries to save memory
         if len(this.history) > this.history_limit
@@ -301,6 +316,14 @@ class NotificationManager
 	enddef
 
 	def GetHistory(): list<string>
+		var result: list<string> = []
+		for entry in this.history
+			result->add(entry.text)
+		endfor
+		return result
+	enddef
+
+	def GetHistoryEntries(): list<NotificationHistoryEntry>
 		return this.history->deepcopy()
 	enddef
 
@@ -380,9 +403,6 @@ class NotificationManager
 			remove(this.active_basic, id_str)
 		endif
 
-		if has_key(this.notif_texts, id_str)
-			this.notif_texts->remove(id_str)
-		endif
 	enddef
 
 	def DismissBy(winid: number)
@@ -572,6 +592,67 @@ def AddPrefixHighlights(winid: number, bufnr: number, linenr: number, text: stri
 	if !empty(notif.subprefix)
 		const end_char = start_char + strcharlen(notif.subprefix)
 		AddHighlightChars(bufnr, linenr, text, start_char, min([end_char, text_len]), "notify_subprefix")
+	endif
+enddef
+
+def AddHistoryNotificationHighlights(
+	bufnr: number,
+	linenr: number,
+	text: string,
+	entry: NotificationHistoryEntry,
+)
+	# History lines start with a timestamp, so all notification offsets are
+	# relative to the text after "[HH:MM:SS] ".
+	const content_start = strcharlen("[00:00:00] ")
+	const fixed_prefix = entry.fixed_prefix
+	const frame_len = entry.frame_len
+	var prefix_parts: list<string> = []
+	if !empty(entry.prefix) | prefix_parts->add(entry.prefix) | endif
+	if !empty(entry.subprefix) | prefix_parts->add(entry.subprefix) | endif
+	const prefix_text = empty(prefix_parts) ? "" : prefix_parts->join(" ") .. " "
+	var start_char = content_start
+
+	if frame_len > 0 # Highlight the frame/icon
+		var prop_type = ""
+		if entry.kind == NotificationKind.Progress
+			prop_type = "notify_progress_bar"
+		elseif entry.kind == NotificationKind.Spinner
+			prop_type = "notify_spinner"
+		endif
+		AddHighlightChars(
+			bufnr,
+			linenr,
+			text,
+			start_char,
+			min([start_char + frame_len, strcharlen(text)]),
+			prop_type,
+		)
+	endif
+
+	start_char += strcharlen(fixed_prefix) - strcharlen(prefix_text)
+	if !empty(entry.prefix) # Highlight the prefix
+		const end_char = start_char + strcharlen(entry.prefix)
+		AddHighlightChars(
+			bufnr,
+			linenr,
+			text,
+			start_char,
+			min([end_char, strcharlen(text)]), 
+			"notify_prefix",
+		)
+		start_char = end_char + 1
+	endif
+
+	if !empty(entry.subprefix) # Highlight the subprefix
+		const end_char = start_char + strcharlen(entry.subprefix)
+		AddHighlightChars(
+			bufnr,
+			linenr,
+			text,
+			start_char,
+			min([end_char, strcharlen(text)]),
+			"notify_subprefix",
+		)
 	endif
 enddef
 
@@ -797,10 +878,6 @@ def SetDisplayText(
 		ApplyHighlight(winid)
 	endif
 
-	if update_history
-		const msg = fixed_prefix .. in_msg
-		NotificationManager.Instance.UpdateLatestMessage(winid, msg)
-	endif
 	if update_positions
 		NotificationManager.Instance.UpdatePositions()
 	endif
@@ -1063,17 +1140,29 @@ export def ShowHistory()
     # Open a 10-line split at the bottom
     execute('botright :10new')
     setlocal buftype=nofile bufhidden=wipe noswapfile
-    setline(1, NotificationManager.Instance.GetHistory())
+	const entries = NotificationManager.Instance.GetHistoryEntries()
+	var lines: list<string> = []
+	for entry in entries
+		lines->add(entry.text)
+	endfor
+	setline(1, lines)
 	ConcealHighlightMarkers(win_getid())
 
-	for l in range(line("$"))
-		ApplyHighlight(win_getid(), l + 1)
+	# Highlight the timestamps before applying notification properties. The
+	# latter must be installed last so syntax highlighting cannot supersede
+	# their colors.
+	syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
+	hi def link NotifyTime Comment
+
+	const history_winid = win_getid()
+	for l in range(len(entries))
+		const bufnr = winbufnr(history_winid)
+		const text = getbufline(bufnr, l + 1)[0]
+		prop_clear(l + 1, 1, {bufnr: bufnr})
+		AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
+		AddMarkedSymbolHighlights(bufnr, l + 1, text)
 	endfor
-    
-    # Highlight the timestamps
-    syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
-    hi def link NotifyTime Comment
-    
-    # Press 'q' to quickly close the history buffer
+	
+	# Press 'q' to quickly close the history buffer
     nnoremap <buffer> <silent> q :bwipeout<CR>
 enddef
