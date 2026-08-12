@@ -1148,6 +1148,12 @@ export def ShowHistory()
 	setline(1, lines)
 	ConcealHighlightMarkers(win_getid())
 
+	# Highlight the timestamps before applying notification properties. The
+	# latter must be installed last so syntax highlighting cannot supersede
+	# their colors.
+	syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
+	hi def link NotifyTime Comment
+
 	const history_winid = win_getid()
 	for l in range(len(entries))
 		const bufnr = winbufnr(history_winid)
@@ -1156,11 +1162,7 @@ export def ShowHistory()
 		AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
 		AddMarkedSymbolHighlights(bufnr, l + 1, text)
 	endfor
-    
-    # Highlight the timestamps
-    syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
-    hi def link NotifyTime Comment
-    
-    # Press 'q' to quickly close the history buffer
+	
+	# Press 'q' to quickly close the history buffer
     nnoremap <buffer> <silent> q :bwipeout<CR>
 enddef
