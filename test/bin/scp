@@ -7,6 +7,10 @@ for arg do
 	last=$arg
 done
 
+if [ -n "${CONDUIT_TEST_SCP:-}" ]; then
+	printf '%s\n' "$*" >> "$CONDUIT_TEST_SCP"
+fi
+
 case "$previous" in
 	*:*)
 		printf '%s\n' 'remote fixture' > "$last"

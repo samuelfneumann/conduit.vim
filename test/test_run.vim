@@ -3,6 +3,8 @@ set rtp^=./test/fixtures
 let g:conduit_use_popup = v:false
 let g:conduit_run_auto_open_quickfix = v:false
 let $CONDUIT_TEST_UPLOAD = tempname()
+let $CONDUIT_TEST_RSYNC = tempname()
+let $CONDUIT_TEST_SCP = tempname()
 runtime plugin/conduit.vim
 
 let parsed = conduit#ParseConduitRunArgs(
@@ -111,13 +113,25 @@ let valid = filter(copy(qf.items), {_, item -> get(item, 'valid', 0)})
 call assert_equal(1, len(valid))
 call assert_match('^conduit-file://', bufname(valid[0].bufnr))
 call assert_equal('main.c', valid[0].module)
+call writefile([], $CONDUIT_TEST_RSYNC)
 cfirst
 call assert_equal('remote fixture', getline(1))
+call assert_match('testhost:/tmp/main.c', readfile($CONDUIT_TEST_RSYNC)[-1])
 call assert_equal('testhost', b:conduit_profile_key)
 call assert_equal('/tmp/main.c', b:conduit_remote_path)
 call setline(1, 'updated remotely')
 write
 call assert_equal(['updated remotely'], readfile($CONDUIT_TEST_UPLOAD))
+call assert_match('testhost:/tmp/main.c', readfile($CONDUIT_TEST_RSYNC)[-1])
+
+let g:conduit_use_rsync = v:false
+Conduit run ++cwd=/tmp testhost echo scp.c:1:1: error: boom
+sleep 500m
+call writefile([], $CONDUIT_TEST_SCP)
+cfirst
+call assert_equal('remote fixture', getline(1))
+call assert_match('testhost:/tmp/scp.c', readfile($CONDUIT_TEST_SCP)[-1])
+let g:conduit_use_rsync = v:true
 
 let g:conduit_run_auto_open_quickfix = v:true
 Conduit! run testhost
@@ -253,4 +267,6 @@ if !empty(v:errors)
 	cquit
 endif
 call delete($CONDUIT_TEST_UPLOAD)
+call delete($CONDUIT_TEST_RSYNC)
+call delete($CONDUIT_TEST_SCP)
 qa!

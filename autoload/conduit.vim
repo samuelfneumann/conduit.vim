@@ -1203,7 +1203,7 @@ def GetRemoteBufferConnection(): Connection
 	return connections[key]
 enddef
 
-# BufReadCmd for conduit-file:// buffers: scp's the remote path down to a
+# BufReadCmd for conduit-file:// buffers: transfers the remote path down to a
 # temp file over the buffer's connection profile and loads it in place,
 # preserving trailing-EOL state so ConduitRemoteWriteCmd() can round-trip it.
 export def ConduitRemoteReadCmd()
@@ -1216,16 +1216,24 @@ export def ConduitRemoteReadCmd()
 
 		const remote_path = getbufvar(bufnr(), 'conduit_remote_path', '')
 		local_file = tempname()
-		var scp_cmd = [
-			'scp',
-			'-q',
-			'-o', $'ControlPath={conn.GetConduitControlPath()}',
-		]
-		scp_cmd->extend(GetScpArgs(conn))
-		scp_cmd->extend([$'{conn.host}:{remote_path}', local_file])
-		system(ShellJoin(scp_cmd))
+		var transfer_cmd: list<string>
+		if UseRsync()
+			var rsh_args = GetSshArgs(conn, false)
+			rsh_args->extend(['-S', conn.GetConduitControlPath()])
+			transfer_cmd = [
+				'rsync', '-az', '-q', '--rsh', ShellJoin(rsh_args),
+				$'{conn.host}:{remote_path}', local_file,
+			]
+		else
+			transfer_cmd = [
+				'scp', '-q', '-o', $'ControlPath={conn.GetConduitControlPath()}',
+			]
+			transfer_cmd->extend(GetScpArgs(conn))
+			transfer_cmd->extend([$'{conn.host}:{remote_path}', local_file])
+		endif
+		system(ShellJoin(transfer_cmd))
 		if v:shell_error != 0
-			throw error.Error.Misc.Format($'scp exited with error {v:shell_error}')
+			throw error.Error.Misc.Format($'transfer exited with error {v:shell_error}')
 		endif
 
 		var lines = readfile(local_file, 'b')
@@ -1255,7 +1263,7 @@ export def ConduitRemoteReadCmd()
 enddef
 
 # BufWriteCmd for conduit-file:// buffers: writes the buffer to a temp file
-# and scp's it back up over the buffer's connection profile, restoring the
+# and transfers it back up over the buffer's connection profile, restoring the
 # buffer's modified state on failure.
 export def ConduitRemoteWriteCmd()
 	const was_modified = &modified
@@ -1269,16 +1277,24 @@ export def ConduitRemoteWriteCmd()
 		const remote_path = getbufvar(bufnr(), 'conduit_remote_path', '')
 		local_file = tempname()
 		writefile(getline(1, '$'), local_file, &endofline ? '' : 'b')
-		var scp_cmd = [
-			'scp',
-			'-q',
-			'-o', $'ControlPath={conn.GetConduitControlPath()}',
-		]
-		scp_cmd->extend(GetScpArgs(conn))
-		scp_cmd->extend([local_file, $'{conn.host}:{remote_path}'])
-		system(ShellJoin(scp_cmd))
+		var transfer_cmd: list<string>
+		if UseRsync()
+			var rsh_args = GetSshArgs(conn, false)
+			rsh_args->extend(['-S', conn.GetConduitControlPath()])
+			transfer_cmd = [
+				'rsync', '-az', '-q', '--rsh', ShellJoin(rsh_args),
+				local_file, $'{conn.host}:{remote_path}',
+			]
+		else
+			transfer_cmd = [
+				'scp', '-q', '-o', $'ControlPath={conn.GetConduitControlPath()}',
+			]
+			transfer_cmd->extend(GetScpArgs(conn))
+			transfer_cmd->extend([local_file, $'{conn.host}:{remote_path}'])
+		endif
+		system(ShellJoin(transfer_cmd))
 		if v:shell_error != 0
-			throw error.Error.Misc.Format($'scp exited with error {v:shell_error}')
+			throw error.Error.Misc.Format($'transfer exited with error {v:shell_error}')
 		endif
 		setlocal nomodified
 		execute 'doautocmd <nomodeline> BufWritePost ' .. fnameescape(remote_path)
