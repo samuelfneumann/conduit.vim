@@ -157,6 +157,11 @@ command and terminal that Conduit requires.
 ==============================================================================
 4. Configuration                                            *conduit-config*
 
+g:conduit_use_rsync					    *g:conduit_use_rsync*
+    Whether to use rsync for remote operations or not. If unset, defaults to
+    scp for remote file operations. If set, rsync must be available on PATH.
+    Default: true when rsync is available on PATH, false otherwise
+
 g:conduit_default_split                                     *g:conduit_default_split*
         Default split mode when `lvim` is called without an operation.
         Default: "split"
