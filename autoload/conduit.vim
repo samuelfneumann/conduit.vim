@@ -1174,77 +1174,6 @@ enddef
 
 # ── Remote File Operations ───────────────────────────────────────────────────
 
-# Builds the scp invocation netrw should use for `conn`'s control socket.
-# Factored out of OpenFile() so ConduitRemoteReadCmd()/WriteCmd() can shell
-# out through the same connection without going through netrw at all.
-def GetNetrwScpCmd(conn: Connection): string
-	const parts = [
-		'scp',
-		'-q',
-		'-o', $'ControlPath={conn.GetConduitControlPath()}',
-	]->extend(GetScpArgs(conn))
-	return ShellJoin(parts)
-enddef
-
-def GetNetrwRsyncCmd(conn: Connection): string
-	var rsh_args = GetSshArgs(conn, false)
-	rsh_args->extend(['-S', conn.GetConduitControlPath()])
-	const parts = ['rsync', '-az', '-q', '--rsh', ShellJoin(rsh_args)]
-	return ShellJoin(parts)
-enddef
-
-# Builds the netrw-style `scp://host/path` URL used to name a buffer opened
-# via `lvim`/OpenFile, so netrw's own scp handling can locate it.
-def GetScpTarget(conn: Connection, remote_path: string): string
-	const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
-	return 'scp://' .. conn.host .. '/' .. abs
-enddef
-
-# Builds the netrw-style `rsync://HOST/PATH` URL used to name a buffer opened
-# via `lvim`/OpenFile, so netrw can locate and open it.
-def GetRsyncTarget(conn: Connection, remote_path: string): string
-	const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
-	return $'rsync://' .. conn.host .. '/' .. abs
-enddef
-
-# Restores g:netrw_scp_cmd to what it was (or unsets it) after OpenFile()
-# temporarily points it at Conduit's control-socket-backed scp.
-def RestoreNetrwScpCmd(existed: bool, before: string)
-	if existed
-		g:netrw_scp_cmd = before
-	elseif exists('g:netrw_scp_cmd')
-		unlet g:netrw_scp_cmd
-	endif
-enddef
-
-# Restores g:netrw_rsync_cmd to what it was (or unsets it) after OpenFile()
-# temporarily points it at Conduit's control-socket-backed rsync.
-def RestoreNetrwRsyncCmd(existed: bool, before: string)
-	if existed
-		g:netrw_rsync_cmd = before
-	elseif exists('g:netrw_rsync_cmd')
-		unlet g:netrw_rsync_cmd
-	endif
-enddef
-
-# Restores g:netrw_rsync_sep to what it was (or unsets it) after OpenFile()
-# temporarily points it at Conduit's control-socket-backed rsync.
-def RestoreNetrwRsyncSep(existed: bool, before: string)
-	if existed
-		g:netrw_rsync_sep = before
-	elseif exists('g:netrw_rsync_sep')
-		unlet g:netrw_rsync_sep
-	endif
-enddef
-
-# Tags `bufnr` with the connection profile and remote path it is backed by,
-# so ConduitRemoteReadCmd()/WriteCmd() and run's quickfix promotion can later
-# resolve which connection and file the buffer belongs to.
-def SetRemoteBufferMetadata(bufnr: number, conn: Connection, remote_path: string)
-	setbufvar(bufnr, 'conduit_profile_key', conn.GetProfileKey())
-	setbufvar(bufnr, 'conduit_remote_path', remote_path)
-enddef
-
 # Returns the (lazily created) buffer backing `remote_path` on `conn`, keyed
 # by connection profile + path so the same remote file always reuses one
 # buffer. Named as a content hash (rather than the scp:// URL OpenFile()
@@ -1361,6 +1290,24 @@ export def ConduitRemoteWriteCmd()
 	endtry
 enddef
 
+# Builds the scp invocation netrw should use for `conn`'s control socket.
+def GetNetrwScpCmd(conn: Connection): string
+	const parts = [
+		'scp',
+		'-q',
+		'-o', $'ControlPath={conn.GetConduitControlPath()}',
+	]->extend(GetScpArgs(conn))
+	return ShellJoin(parts)
+enddef
+
+def GetNetrwRsyncCmd(conn: Connection): string
+	var rsh_args = GetSshArgs(conn, false)
+	rsh_args->extend(['-S', conn.GetConduitControlPath()])
+
+	const parts = ['rsync', '-az', '-q', '--rsh', ShellJoin(rsh_args)]
+	return ShellJoin(parts)
+enddef
+
 # Builds the netrw-style `scp://HOST/PATH` URL used to name a buffer opened
 # via `lvim`/OpenFile, so netrw can locate and open it.
 def GetScpTarget(conn: Connection, remote_path: string): string
@@ -1411,42 +1358,6 @@ enddef
 def SetRemoteBufferMetadata(bufnr: number, conn: Connection, remote_path: string)
 	setbufvar(bufnr, 'conduit_profile_key', conn.GetProfileKey())
 	setbufvar(bufnr, 'conduit_remote_path', remote_path)
-enddef
-
-# BufWriteCmd for conduit-file:// buffers: writes the buffer to a temp file
-# and scp's it back up over the buffer's connection profile, restoring the
-# buffer's modified state on failure.
-export def ConduitRemoteWriteCmd()
-	const was_modified = &modified
-	var local_file = ''
-	try
-		const conn = GetRemoteBufferConnection()
-		if conn.ConduitClosed()
-			throw error.Error.Misc.Format($'connection "{conn.GetProfileKey()}" is not active')
-		endif
-
-		const remote_path = getbufvar(bufnr(), 'conduit_remote_path', '')
-		local_file = tempname()
-		writefile(getline(1, '$'), local_file, &endofline ? '' : 'b')
-		var scp_cmd = [
-			'scp',
-			'-q',
-			'-o', $'ControlPath={conn.GetConduitControlPath()}',
-		]
-		scp_cmd->extend(GetScpArgs(conn))
-		scp_cmd->extend([local_file, $'{conn.host}:{remote_path}'])
-		system(ShellJoin(scp_cmd))
-		if v:shell_error != 0
-			throw error.Error.Misc.Format($'scp exited with error {v:shell_error}')
-		endif
-		setlocal nomodified
-		execute 'doautocmd <nomodeline> BufWritePost ' .. fnameescape(remote_path)
-	catch
-		if was_modified | setlocal modified | endif
-		Warn($'Failed to write remote file (error: {v:exception})')
-	finally
-		if !empty(local_file) | delete(local_file) | endif
-	endtry
 enddef
 
 def OpenFileScp(conn: Connection, op: string, abs: string, target: string)
