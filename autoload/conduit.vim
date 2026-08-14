@@ -1307,7 +1307,7 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 
 	var scp_cmd: list<string>
 	if get
-		if executable('rsync')
+		if UseRsync()
 			var rsh_args = GetSshArgs(conn)
 			rsh_args->extend(['-S', conn.GetConduitControlPath()])
 			var rsh_cmd = ShellJoin(rsh_args)
@@ -1341,7 +1341,7 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 			)
 		endif
 	else
-		if executable('rsync')
+		if UseRsync()
 			var rsh_args = GetSshArgs(conn)
 			rsh_args->extend(['-S', conn.GetConduitControlPath()])
 			var rsh_cmd = ShellJoin(rsh_args)
