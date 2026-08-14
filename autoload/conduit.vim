@@ -1301,6 +1301,85 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 	if job_status(j) ==# 'run' | scp_ops->add(scp_op) | endif
 enddef
 
+def BuildGetCommand(
+	conn: Connection, paths: list<string>, target_path: string,
+): list<string>
+	const host = conn.host
+	var get_cmd: list<string> = []
+	if UseRsync()
+		var rsh_args = GetSshArgs(conn)
+		rsh_args->extend(['-S', conn.GetConduitControlPath()])
+		var rsh_cmd = ShellJoin(rsh_args)
+
+		get_cmd = [
+			"rsync",
+			"-az",
+			"--info=progress2",
+			"--rsh",
+			rsh_cmd,
+		]
+		for remote_path in paths
+			get_cmd->add($"{host}:{remote_path}")
+		endfor
+		get_cmd->add(target_path)
+	elseif executable('scp')
+		get_cmd = [
+			'scp',
+			'-q',
+			$'-o ControlPath={conn.GetConduitControlPath()}',
+			'-r',
+		]
+		get_cmd->extend(GetScpArgs(conn))
+		for remote_path in paths
+			get_cmd->add($'{host}:{remote_path}')
+		endfor
+		get_cmd->add(target_path)
+	else
+		throw error.Error.RsyncScpUnavailable.Format(
+			"rsync or scp not available"
+		)
+	endif
+	return get_cmd
+enddef
+
+def BuildPutCommand(
+	conn: Connection, paths: list<string>, target_path: string,
+): list<string>
+	const host = conn.host
+	var put_cmd: list<string> = []
+	if UseRsync()
+		var rsh_args = GetSshArgs(conn)
+		rsh_args->extend(['-S', conn.GetConduitControlPath()])
+		var rsh_cmd = ShellJoin(rsh_args)
+
+		put_cmd = [
+			"rsync",
+			"-az",
+			"--info=progress2",
+			"--inplace",
+			"--rsh",
+			rsh_cmd,
+		]
+		put_cmd->extend(paths)
+		put_cmd->add($"{host}:{target_path}")
+	elseif executable('scp')
+		put_cmd = [
+			'scp',
+			'-q',
+			$'-o ControlPath={conn.GetConduitControlPath()}',
+			'-r',
+		]
+		put_cmd->extend(GetScpArgs(conn))
+		put_cmd->extend(paths)
+		put_cmd->add($'{host}:{target_path}')
+	else
+		throw error.Error.RsyncScpUnavailable.Format(
+			"rsync or scp not available"
+		)
+	endif
+	return put_cmd
+enddef
+
 def RsyncFile(conn: Connection, get: bool, path: string, target_path: string)
 	RsyncFiles(conn, get, [path], target_path)
 enddef
@@ -1314,72 +1393,11 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 	const source_count = len(paths)
 	const batch_label = source_count == 1 ? 'file' : 'files'
 
-	var scp_cmd: list<string>
+	var cmd: list<string>
 	if get
-		if UseRsync()
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
-
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--rsh",
-				rsh_cmd,
-			]
-			for remote_path in paths
-				scp_cmd->add($"{host}:{remote_path}")
-			endfor
-			scp_cmd->add(target_path)
-		elseif executable('scp')
-			scp_cmd = [
-				'scp',
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			for remote_path in paths
-				scp_cmd->add($'{host}:{remote_path}')
-			endfor
-			scp_cmd->add(target_path)
-		else
-			throw error.Error.RsyncScpUnavailable.Format(
-				"rsync or scp not available"
-			)
-		endif
+		cmd = BuildGetCommand(conn, paths, target_path)
 	else
-		if UseRsync()
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
-
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--inplace",
-				"--rsh",
-				rsh_cmd,
-			]
-			scp_cmd->extend(paths)
-			scp_cmd->add($"{host}:{target_path}")
-		elseif executable('scp')
-			scp_cmd = [
-				'scp',
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			scp_cmd->extend(paths)
-			scp_cmd->add($'{host}:{target_path}')
-		else
-			throw error.Error.RsyncScpUnavailable.Format(
-				"rsync or scp not available"
-			)
-		endif
+		cmd = BuildPutCommand(conn, paths, target_path)
 	endif
 
 	const display_paths = get
@@ -1400,7 +1418,7 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 		conn,
 		get,
 		get ? 'get' : 'put',
-		scp_cmd,
+		cmd,
 		notif_suffix,
 		get ? target_path : paths->join(", "),
 		get ? paths->join(", ") : target_path,
