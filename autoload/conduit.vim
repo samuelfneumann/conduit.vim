@@ -1212,13 +1212,21 @@ def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
 
 enddef
 
-def GetLocalPathForNotification(path: string): string
+# Computes the local pathname to show in a notification
+def GetLocalPathForNotification(path: string, _basename: string): string
+	const basename = isdirectory(path) ? $'/{_basename}' : ''
+
 	if !get(g:, 'conduit_notifications_use_relative_local_paths', false)
-		return path
+		if isdirectory(path) 
+			return (fnamemodify(path, ':p') .. basename[1 :])
+		endif
+		return fnamemodify(path, ':p')
 	endif
 
-	if path ==# getcwd() | return '.' | endif
-	return './' .. fnamemodify(path, ':.')
+	if path ==# getcwd() 
+		return '.' .. basename
+	endif
+	return './' .. fnamemodify(path, ':.') .. basename
 enddef
 
 def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<string>, notif_suffix: string, local_file: string, remote_file: string)
@@ -1384,6 +1392,14 @@ def RsyncFile(conn: Connection, get: bool, path: string, target_path: string)
 	RsyncFiles(conn, get, [path], target_path)
 enddef
 
+def Zip<T>(l1: list<T>, l2: list<T>): list<tuple<T, T>>
+	if len(l1) != len(l2)
+		throw 'error: l1 and l2 must have the same length'
+	endif
+
+	return mapnew(range(len(l1)), (_, i) => (l1[i], l2[i]))
+enddef
+
 def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: string)
 	if empty(paths)
 		return
@@ -1400,12 +1416,23 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 		cmd = BuildPutCommand(conn, paths, target_path)
 	endif
 
-	const display_paths = get
-		? paths
-		: mapnew(paths, (_, path) => GetLocalPathForNotification(path))
-	const display_target_path = get
-		? GetLocalPathForNotification(target_path)
-		: target_path
+	var display_paths: list<string>
+	if get
+		display_paths = paths
+	else
+		for p in paths
+			display_paths->add(GetLocalPathForNotification(p, ""))
+		endfor
+	endif
+
+	var display_target_path: string
+	if get
+		const base_path = source_count == 1 ? fnamemodify(paths[0], ':t') : ""
+		display_target_path = GetLocalPathForNotification(target_path, base_path)
+	else
+		display_target_path = target_path
+	endif
+
 	const notif_suffix = source_count == 1
 		? get
 			? $"{host}:{display_paths[0]} ‹→› {display_target_path}"
@@ -1511,7 +1538,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         '      if [ "$#" -ge 2 ]; then',
         $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(realpath "$2")"',
         '      else',
-        $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
+        $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)/"',
         '      fi',
         '      ;;',
         '    *" get "*)',

@@ -179,7 +179,7 @@ g:conduit_notifications_use_relative_local_paths *g:conduit_notifications_use_re
         If true, shows all local paths in transfer notifications relative to
         Vim's current working directory. Transfer commands still use the
         original paths.
-        Default: false
+        Default: true
 
 g:conduit_put_max_depth                                     *g:conduit_put_max_depth*
         Maximum depth for fuzzy searching local files during `lvim put`.
