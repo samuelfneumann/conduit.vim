@@ -1212,6 +1212,15 @@ def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
 
 enddef
 
+def GetLocalPathForNotification(path: string): string
+	if !get(g:, 'conduit_notifications_use_relative_local_paths', false)
+		return path
+	endif
+
+	if path ==# getcwd() | return '.' | endif
+	return './' .. fnamemodify(path, ':.')
+enddef
+
 def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<string>, notif_suffix: string, local_file: string, remote_file: string)
 
 	if g:conduit_verbose && !empty(scp_cmd) | echom $"Conduit(sh/{op}):" scp_cmd->join(' ') | endif
@@ -1373,13 +1382,19 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 		endif
 	endif
 
+	const display_paths = get
+		? paths
+		: mapnew(paths, (_, path) => GetLocalPathForNotification(path))
+	const display_target_path = get
+		? GetLocalPathForNotification(target_path)
+		: target_path
 	const notif_suffix = source_count == 1
 		? get
-			? $"{host}:{paths[0]} ‹→› {target_path}"
-			: $"{paths[0]} ‹→› {host}:{target_path}"
+			? $"{host}:{display_paths[0]} ‹→› {display_target_path}"
+			: $"{display_paths[0]} ‹→› {host}:{display_target_path}"
 		: get
-			? $"{source_count} {batch_label} ‹→› {target_path}"
-			: $"{source_count} {batch_label} ‹→› {host}:{target_path}"
+			? $"{source_count} {batch_label} ‹→› {display_target_path}"
+			: $"{source_count} {batch_label} ‹→› {host}:{display_target_path}"
 
 	StartTransferJob(
 		conn,
