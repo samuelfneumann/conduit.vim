@@ -1212,6 +1212,23 @@ def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
 
 enddef
 
+# Computes the local pathname to show in a notification
+def GetLocalPathForNotification(path: string, _basename: string): string
+	const basename = isdirectory(path) ? $'/{_basename}' : ''
+
+	if !get(g:, 'conduit_notifications_use_relative_local_paths', false)
+		if isdirectory(path) 
+			return (fnamemodify(path, ':p') .. basename[1 :])
+		endif
+		return fnamemodify(path, ':p')
+	endif
+
+	if path ==# getcwd() 
+		return '.' .. basename
+	endif
+	return './' .. fnamemodify(path, ':.') .. basename
+enddef
+
 def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<string>, notif_suffix: string, local_file: string, remote_file: string)
 
 	if g:conduit_verbose && !empty(scp_cmd) | echom $"Conduit(sh/{op}):" scp_cmd->join(' ') | endif
@@ -1292,8 +1309,95 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 	if job_status(j) ==# 'run' | scp_ops->add(scp_op) | endif
 enddef
 
+def BuildGetCommand(
+	conn: Connection, paths: list<string>, target_path: string,
+): list<string>
+	const host = conn.host
+	var get_cmd: list<string> = []
+	if UseRsync()
+		var rsh_args = GetSshArgs(conn)
+		rsh_args->extend(['-S', conn.GetConduitControlPath()])
+		var rsh_cmd = ShellJoin(rsh_args)
+
+		get_cmd = [
+			"rsync",
+			"-az",
+			"--info=progress2",
+			"--rsh",
+			rsh_cmd,
+		]
+		for remote_path in paths
+			get_cmd->add($"{host}:{remote_path}")
+		endfor
+		get_cmd->add(target_path)
+	elseif executable('scp')
+		get_cmd = [
+			'scp',
+			'-q',
+			$'-o ControlPath={conn.GetConduitControlPath()}',
+			'-r',
+		]
+		get_cmd->extend(GetScpArgs(conn))
+		for remote_path in paths
+			get_cmd->add($'{host}:{remote_path}')
+		endfor
+		get_cmd->add(target_path)
+	else
+		throw error.Error.RsyncScpUnavailable.Format(
+			"rsync or scp not available"
+		)
+	endif
+	return get_cmd
+enddef
+
+def BuildPutCommand(
+	conn: Connection, paths: list<string>, target_path: string,
+): list<string>
+	const host = conn.host
+	var put_cmd: list<string> = []
+	if UseRsync()
+		var rsh_args = GetSshArgs(conn)
+		rsh_args->extend(['-S', conn.GetConduitControlPath()])
+		var rsh_cmd = ShellJoin(rsh_args)
+
+		put_cmd = [
+			"rsync",
+			"-az",
+			"--info=progress2",
+			"--inplace",
+			"--rsh",
+			rsh_cmd,
+		]
+		put_cmd->extend(paths)
+		put_cmd->add($"{host}:{target_path}")
+	elseif executable('scp')
+		put_cmd = [
+			'scp',
+			'-q',
+			$'-o ControlPath={conn.GetConduitControlPath()}',
+			'-r',
+		]
+		put_cmd->extend(GetScpArgs(conn))
+		put_cmd->extend(paths)
+		put_cmd->add($'{host}:{target_path}')
+	else
+		throw error.Error.RsyncScpUnavailable.Format(
+			"rsync or scp not available"
+		)
+	endif
+	return put_cmd
+enddef
+
 def RsyncFile(conn: Connection, get: bool, path: string, target_path: string)
 	RsyncFiles(conn, get, [path], target_path)
+enddef
+
+def Zip<T>(l1: list<T>, l2: list<T>): list<tuple<T, T>>
+	if len(l1) != len(l2)
+		throw 'error: l1 and l2 must have the same length'
+	endif
+
+	return mapnew(range(len(l1)), (_, i) => (l1[i], l2[i]))
 enddef
 
 def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: string)
@@ -1305,87 +1409,43 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 	const source_count = len(paths)
 	const batch_label = source_count == 1 ? 'file' : 'files'
 
-	var scp_cmd: list<string>
+	var cmd: list<string>
 	if get
-		if executable('rsync')
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
-
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--rsh",
-				rsh_cmd,
-			]
-			for remote_path in paths
-				scp_cmd->add($"{host}:{remote_path}")
-			endfor
-			scp_cmd->add(target_path)
-		elseif executable('scp')
-			scp_cmd = [
-				'scp',
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			for remote_path in paths
-				scp_cmd->add($'{host}:{remote_path}')
-			endfor
-			scp_cmd->add(target_path)
-		else
-			throw error.Error.RsyncScpUnavailable.Format(
-				"rsync or scp not available"
-			)
-		endif
+		cmd = BuildGetCommand(conn, paths, target_path)
 	else
-		if executable('rsync')
-			var rsh_args = GetSshArgs(conn)
-			rsh_args->extend(['-S', conn.GetConduitControlPath()])
-			var rsh_cmd = ShellJoin(rsh_args)
+		cmd = BuildPutCommand(conn, paths, target_path)
+	endif
 
-			scp_cmd = [
-				"rsync",
-				"-az",
-				"--info=progress2",
-				"--inplace",
-				"--rsh",
-				rsh_cmd,
-			]
-			scp_cmd->extend(paths)
-			scp_cmd->add($"{host}:{target_path}")
-		elseif executable('scp')
-			scp_cmd = [
-				'scp',
-				'-q',
-				$'-o ControlPath={conn.GetConduitControlPath()}',
-				'-r',
-			]
-			scp_cmd->extend(GetScpArgs(conn))
-			scp_cmd->extend(paths)
-			scp_cmd->add($'{host}:{target_path}')
-		else
-			throw error.Error.RsyncScpUnavailable.Format(
-				"rsync or scp not available"
-			)
-		endif
+	var display_paths: list<string>
+	if get
+		display_paths = paths
+	else
+		for p in paths
+			display_paths->add(GetLocalPathForNotification(p, ""))
+		endfor
+	endif
+
+	var display_target_path: string
+	if get
+		const base_path = source_count == 1 ? fnamemodify(paths[0], ':t') : ""
+		display_target_path = GetLocalPathForNotification(target_path, base_path)
+	else
+		display_target_path = target_path
 	endif
 
 	const notif_suffix = source_count == 1
 		? get
-			? $"{host}:{paths[0]} ‹→› {target_path}"
-			: $"{paths[0]} ‹→› {host}:{target_path}"
+			? $"{host}:{display_paths[0]} ‹→› {display_target_path}"
+			: $"{display_paths[0]} ‹→› {host}:{display_target_path}"
 		: get
-			? $"{source_count} {batch_label} ‹→› {target_path}"
-			: $"{source_count} {batch_label} ‹→› {host}:{target_path}"
+			? $"{source_count} {batch_label} ‹→› {display_target_path}"
+			: $"{source_count} {batch_label} ‹→› {host}:{display_target_path}"
 
 	StartTransferJob(
 		conn,
 		get,
 		get ? 'get' : 'put',
-		scp_cmd,
+		cmd,
 		notif_suffix,
 		get ? target_path : paths->join(", "),
 		get ? paths->join(", ") : target_path,
@@ -1478,7 +1538,7 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(): void)
         '      if [ "$#" -ge 2 ]; then',
         $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(realpath "$2")"',
         '      else',
-        $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)"',
+        $'        msg="$msg{g:conduit_sep}$1{g:conduit_sep}$(pwd)/"',
         '      fi',
         '      ;;',
         '    *" get "*)',

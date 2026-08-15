@@ -175,6 +175,12 @@ g:conduit_use_popup                                         *g:conduit_use_popup
         has multiple fuzzy matches).
         Default: false
 
+g:conduit_notifications_use_relative_local_paths *g:conduit_notifications_use_relative_local_paths*
+        If true, shows all local paths in transfer notifications relative to
+        Vim's current working directory. Transfer commands still use the
+        original paths.
+        Default: true
+
 g:conduit_put_max_depth                                     *g:conduit_put_max_depth*
         Maximum depth for fuzzy searching local files during `lvim put`.
         Default: 5
