@@ -16,6 +16,9 @@ var right_arrow: string = has('multi_byte') ? '→' : '->'
 var pbar_filled: string = has('multi_byte') ? '█' : '#'
 var pbar_empty: string = has('multi_byte') ? '▒' : '-'
 
+const left_marker = '‹'
+const right_marker = '›'
+
 var border_chars_default: list<string> = has('multi_byte')
     ? ['─', '│', '─', '│', '╭', '╮', '╯', '╰']
     : ['-', '|', '-', '|', '+', '+', '+', '+']
@@ -665,8 +668,6 @@ def AddMarkedSymbolHighlights(bufnr: number, linenr: number, text: string)
 		[right_arrow, "notify_right_arrow"],
 		[pipe, "notify_pipe"],
 	]
-	const left_marker = '‹'
-	const right_marker = '›'
 
 	for [symbol, prop_type] in symbols
 		const marked_symbol = left_marker .. symbol .. right_marker
@@ -821,7 +822,13 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 			return
 		endif
 
-		this.idxs[id_str] = (this.idxs[id_str] + 1) % this.CycleLen(this.msgs[id_str])
+		const msg = this.msgs[id_str]
+		const idx = this.idxs[id_str]
+		const is_marker = msg[idx] == left_marker || msg[idx] == right_marker
+		const step = is_marker ? 2 : 1
+
+		this.idxs[id_str] = (this.idxs[id_str] + step) % this.CycleLen(this.msgs[id_str])
+
 		popup_settext(
 			winid,
 			this.Frame(
@@ -966,7 +973,7 @@ def CreatePopup(in_msg: string, opts: NotificationOptions): number
         tabpage: -1,
         zindex: 100,
         time: 0,
-        persistent: false,
+        persistent: true,
         callback: OnPopupClose
     }
     
