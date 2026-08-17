@@ -966,7 +966,7 @@ def CreatePopup(in_msg: string, opts: NotificationOptions): number
         tabpage: -1,
         zindex: 100,
         time: 0,
-        persistent: false,
+        persistent: true,
         callback: OnPopupClose
     }
     
