@@ -68,6 +68,9 @@ Then, read the docs:
 " Start an interactive SSH terminal and deploy lvim/vim aliases
 :Conduit open user@example.com
 
+" Start an interactive SSH terminal in a hidden buffer, useful for `:Conduit run`
+:Conduit open ++hidden user@example.com
+
 " `:Conduit open` works with modifiers and bar!
 :tab Conduit open user@example.com
 :topleft Conduit open user@example.com
@@ -76,6 +79,18 @@ Then, read the docs:
 
 " Deploy the remote environment without opening a terminal
 :Conduit deploy user@example.com
+
+" Run a command remotely and stream diagnostics into quickfix
+:Conduit run ++cwd=/srv/app user@example.com make test
+
+" Override 'errorformat' for this run only
+:Conduit run ++errorformat=gcc user@example.com make test
+
+" Pipelines use Vim's escaped bar syntax
+:Conduit run user@example.com pytest \| tee /tmp/test.log
+
+" Rerun the last completed task for this connection
+:Conduit! run user@example.com
 
 " Copy the source command for an existing connection to your system clipboard.
 " If you use `:Conduit deploy user@example.com` then manually SSH, you can run
@@ -91,6 +106,7 @@ Then, read the docs:
 " Stop a transfer for a connection
 :Conduit stop get user@example.com '*.log'
 :Conduit stop put user@example.com '*.log'
+:Conduit stop run user@example.com '*'
 
 " Clean up or force-close a connection
 :Conduit exit user@example.com
@@ -98,6 +114,39 @@ Then, read the docs:
 ```
 
 `open` and `deploy` accept short-form options with `+` and long-form options with `++`; the option itself determines whether it configures SSH or Vim's terminal. See [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
+
+### Remote tasks and quickfix
+
+`:Conduit run [++cwd=DIR] [++errorformat=EFM] CONNECTION COMMAND` executes
+`COMMAND` through the existing multiplexed SSH connection. Standard output and
+standard error are merged in order and added live to a new quickfix list using
+the local `'errorformat'` value captured when the task starts. Relative
+diagnostic paths are resolved against the actual remote working directory, and
+quickfix jumps open the file through the exact Conduit profile that ran the
+task. Plain output lines that resolve to real remote files are also made
+jumpable, which makes commands such as `ls`, `find`, and `git ls-files` useful
+directly from quickfix. Other output remains visible as non-jumpable quickfix
+text.
+
+When `++cwd` is omitted, Conduit uses the directory of the current remote
+buffer if it belongs to the selected connection. Otherwise, the task starts in
+the remote login home. Options use Conduit's Vim-style `+` convention and must
+come before the connection; everything after the connection is untouched
+remote shell text. As elsewhere in Conduit, the `=` is optional — `++cwd DIR`
+and `++errorformat EFM` work as well as the `=`-joined form.
+
+`++errorformat=EFM` overrides `'errorformat'` for this run only. `EFM` is
+resolved as, in order: a key in `g:conduit_errorformat` (a dictionary mapping
+your own aliases to `'errorformat'` strings); a `:compiler` plugin named `EFM`,
+whose `'errorformat'` Conduit borrows without disturbing the invoking window's
+own compiler state; or, failing both, `EFM` itself taken as a literal
+`'errorformat'` string.
+
+Use `:Conduit! run CONNECTION` to rerun that connection's last completed task.
+The bang belongs to `:Conduit`, as required by Ex command syntax;
+`:Conduit run!` is not supported. Active runs can be cancelled with
+`:Conduit stop run CONNECTION PATTERN`; `*` matches every run on the
+connection.
 
 
 ### The `lvim` command
@@ -210,12 +259,38 @@ Control how long the SSH master socket stays open in the background:
 let g:conduit_default_control_persist = '4h'
 ```
 
+### Remote task quickfix
+
+By default Conduit runs `:cwindow` when a remote task completes. Disable this
+to leave focus unchanged and receive a notification pointing to the populated
+quickfix list:
+
+```vim
+let g:conduit_run_auto_open_quickfix = false
+```
+
+Give short aliases to `'errorformat'` strings for use with `++errorformat=`:
+
+```vim
+let g:conduit_errorformat = {
+    \ 'django': '%A  File "%f", line %l, in %.%#',
+\ }
+```
+
 ### Notifier Styling
 ```vim
 let g:notifier_maxwidth = 60
 let g:notifier_overflow = 'carousel' " Or: 'wrap', 'truncate'
 let g:notifier_carousel_interval = 300 " Carousel animation frame speed in ms
 let g:notifier_carousel_end_pause = 2 " Seconds
+```
+
+## Testing
+
+Run the headless Vim integration suite with:
+
+```bash
+test/run.sh
 ```
 
 Notification prefixes use `NotifyPrefix` and `NotifySubPrefix` highlight groups

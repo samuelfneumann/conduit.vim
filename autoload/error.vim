@@ -19,7 +19,8 @@ export enum Error
 	InvalidOpPathFormat("C016"),
 	MissingNotifierOptionKey("C017"),
 	InvalidNotificationId("C018"),
-	Misc("C019")
+	UnsupportedShell("C019"),
+	Misc("C020")
 
 	const code: string
 

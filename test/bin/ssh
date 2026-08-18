@@ -1,0 +1,14 @@
+#!/bin/sh
+
+last=
+for arg do
+	last=$arg
+done
+
+case "$last" in
+	*CONDUIT_CWD_*|*CONDUIT_FILE_CHECK*)
+		exec /bin/sh -c "$last"
+		;;
+esac
+
+exit 0

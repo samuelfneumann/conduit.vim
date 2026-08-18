@@ -16,8 +16,8 @@ var right_arrow: string = has('multi_byte') ? '→' : '->'
 var pbar_filled: string = has('multi_byte') ? '█' : '#'
 var pbar_empty: string = has('multi_byte') ? '▒' : '-'
 
-const left_marker = '‹'
-const right_marker = '›'
+const left_marker: string = '‹'
+const right_marker: string = '›'
 
 var border_chars_default: list<string> = has('multi_byte')
     ? ['─', '│', '─', '│', '╭', '╮', '╯', '╰']
@@ -464,7 +464,7 @@ endclass
 hi def link NotifyPipe Operator
 hi def link NotifyRightArrow Function
 hi def link NotifySuccess String
-hi def link NotifyError Error
+hi def link NotifyError ErrorMsg
 hi def link NotifyWarning WarningMsg
 hi def link NotifyInfo Question
 hi def link NotifyPrefix Identifier
@@ -473,22 +473,27 @@ hi def link NotifyProgressBar Function
 hi def link NotifySpinner PreCondit
 hi def link NotifyMessage Normal
 
-def InitProp(name: string, hl_group: string)
+def InitProp(name: string, hl_group: string, priority: number = 0)
     if empty(prop_type_get(name))
         prop_type_add(name, {
             highlight: hl_group,
             combine: false,
             override: true,
+            priority: priority,
         })
     endif
 enddef
 
-InitProp("notify_pipe", "NotifyPipe")
-InitProp("notify_right_arrow", "NotifyRightArrow")
-InitProp("notify_success", "NotifySuccess")
-InitProp("notify_error", "NotifyError")
-InitProp("notify_warning", "NotifyWarning")
-InitProp("notify_info", "NotifyInfo")
+# Marked symbols (‹✓›, ‹×›, ‹→›, etc.) can appear nested inside a prefix or
+# subprefix, e.g. {prefix: $"‹×› Unsupported shell {shell}"}. Give them a
+# higher priority so they win over the surrounding prefix/subprefix
+# highlight on any overlapping bytes.
+InitProp("notify_pipe", "NotifyPipe", 10)
+InitProp("notify_right_arrow", "NotifyRightArrow", 10)
+InitProp("notify_success", "NotifySuccess", 10)
+InitProp("notify_error", "NotifyError", 10)
+InitProp("notify_warning", "NotifyWarning", 10)
+InitProp("notify_info", "NotifyInfo", 10)
 InitProp("notify_prefix", "NotifyPrefix")
 InitProp("notify_subprefix", "NotifySubPrefix")
 InitProp("notify_progress_bar", "NotifyProgressBar")
