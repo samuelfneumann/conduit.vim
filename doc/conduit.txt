@@ -85,10 +85,16 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 	    `++kill=...`
 	    `++opencmd=...`
 
+	`++nodeploy` skips deploying a new conduit RC file and uses the file
+	created by an earlier |:Conduit-open| for the same connection profile.
+	A normal `:Conduit open` must be used first in the current Vim instance.
+	The remote RC file is temporary and may be removed when the last terminal
+	for that profile closes, or when Vim exits.
+
         A short-form name must be exactly one character; a long-form name
-        must not be. Both forms are closed, validated sets: only the SSH and
-        Vim terminal options listed above are accepted. A bare `++` (or `--`)
-        by itself stops option parsing before the host.
+        must not be. Both forms are closed, validated sets: only the options
+        listed above are accepted. A bare `++` (or `--`) by itself stops
+        option parsing before the host.
 
 :Conduit deploy [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-deploy*
