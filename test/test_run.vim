@@ -20,6 +20,11 @@ call assert_true(index(
 	\ '++nodeploy',
 	\ ) >= 0)
 
+messages clear
+Conduit deploy ++nodeploy testhost
+call assert_match('++nodeploy is only valid with Conduit open', execute('messages'))
+messages clear
+
 let parsed = conduit#ParseConduitRunArgs(
 	\ '++cwd=/srv/my\ app dev printf x | sed s/x/y/',
 	\ v:false,

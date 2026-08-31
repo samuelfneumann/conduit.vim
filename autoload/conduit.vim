@@ -2903,6 +2903,11 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 		notifier.Dismiss(notif)
 		return
 	endtry
+	if deploy_only && parsed.nodeploy
+		Warn(error.Error.InvalidConduitOption.Format('++nodeploy is only valid with Conduit open'))
+		notifier.Dismiss(notif)
+		return
+	endif
 
 	var host = parsed.host
 	var port = parsed.port
