@@ -7,6 +7,19 @@ let $CONDUIT_TEST_RSYNC = tempname()
 let $CONDUIT_TEST_SCP = tempname()
 runtime plugin/conduit.vim
 
+let open_parsed = conduit#ParseConduitOpenArgs('++nodeploy ++hidden testhost')
+call assert_equal(v:true, open_parsed.nodeploy)
+call assert_equal({'hidden': ''}, open_parsed.term_options)
+call assert_equal([], open_parsed.ssh_options)
+
+let deploying_open = conduit#ParseConduitOpenArgs('testhost')
+call assert_equal(v:false, deploying_open.nodeploy)
+
+call assert_true(index(
+	\ conduit#ConduitCompl('++nod', 'Conduit open ++nod', strlen('Conduit open ++nod') + 1),
+	\ '++nodeploy',
+	\ ) >= 0)
+
 let parsed = conduit#ParseConduitRunArgs(
 	\ '++cwd=/srv/my\ app dev printf x | sed s/x/y/',
 	\ v:false,
@@ -261,6 +274,12 @@ sleep 300m
 let stopped_qf = getqflist({'context': 0, 'title': 0})
 call assert_equal(-1, stopped_qf.context.exit_code)
 call assert_match('(stopped, 0 entries)$', stopped_qf.title)
+
+" ++nodeploy opens the session without uploading a replacement RC file.
+call writefile([], $CONDUIT_TEST_RSYNC)
+Conduit open ++nodeploy ++hidden testhost
+sleep 500m
+call assert_equal([], readfile($CONDUIT_TEST_RSYNC))
 
 if !empty(v:errors)
 	call writefile(v:errors, '/dev/stderr')

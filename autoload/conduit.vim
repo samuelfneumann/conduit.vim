@@ -131,6 +131,21 @@ class TermOption extends ConduitOption
 	enddef
 endclass
 
+class OpenOption extends ConduitOption
+	def new(long: string)
+		this.long = long
+		this.takes_value = false
+	enddef
+
+	def Apply(ssh_options: list<string>, open_options: dict<any>, value: string)
+		open_options[this.long] = true
+	enddef
+
+	def MissingValueError(): error.Error
+		return error.Error.InvalidConduitOption
+	enddef
+endclass
+
 export class Connection
 	static var host2shell: dict<string> = g:conduit_host2shell
 	static var fallback_shell: string = g:conduit_fallback_shell
@@ -656,10 +671,15 @@ const term_option_specs: list<TermOption> = [
 	TermOption.new('opencmd', true),
 ]
 
+const open_option_specs: list<OpenOption> = [
+	OpenOption.new('nodeploy'),
+]
+
 # Stores all ConduitOptions
 var all_option_specs: list<ConduitOption> = []
 all_option_specs->extend(ssh_option_specs)
 all_option_specs->extend(term_option_specs)
+all_option_specs->extend(open_option_specs)
 
 # Stores short/long option text -> ConduitOption
 var opts_by_short: dict<ConduitOption> = {}
@@ -818,7 +838,7 @@ def ParseTermOptions(opts: dict<any>): dict<any>
 	return new_opts
 enddef
 
-def ParseConduitOpenArgs(args: string): dict<any>
+export def ParseConduitOpenArgs(args: string): dict<any>
 	var tokens = split(args)
 	if empty(tokens)
 		throw error.Error.MissingHost.Format('missing host')
@@ -912,11 +932,17 @@ def ParseConduitOpenArgs(args: string): dict<any>
 		throw error.Error.InvalidPort.Format('invalid port')
 	endif
 
+	const nodeploy = term_options->has_key('nodeploy') != 0
+	if nodeploy
+		term_options->remove('nodeploy')
+	endif
+
 	return {
 		host: host,
 		port: port,
 		ssh_options: ssh_options,
 		term_options: term_options,
+		nodeploy: nodeploy,
 	}
 enddef
 
@@ -1918,6 +1944,19 @@ def DeployRcfile(conn: Connection, OnSuccess: func(): void, OnErr: func(number):
     return job_out
 enddef
 
+def PrepareRcfile(
+	conn: Connection,
+	nodeploy: bool,
+	OnSuccess: func(): void,
+	OnErr: func(number): void,
+): job
+	if nodeploy
+		OnSuccess()
+		return null_job
+	endif
+	return DeployRcfile(conn, OnSuccess, OnErr)
+enddef
+
 def ParseScp(msg: string): tuple<string, number, string>
     # scp often sends multiple updates in one buffer via carriage returns
     var parts = split(msg, "\r")
@@ -2869,6 +2908,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	var port = parsed.port
 	var ssh_options = parsed.ssh_options
 	var term_options = ParseTermOptions(parsed.term_options)
+	const nodeploy = parsed.nodeploy
 
 	var conn: Connection
 	try
@@ -2943,11 +2983,12 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 				return
 			endif
 
-			notifier.UpdateLoading(notif, $"Deploying rc file")
+			notifier.UpdateLoading(notif, nodeploy ? $"Using existing rc file" : $"Deploying rc file")
 			redraw
 
-			DeployRcfile(
+			PrepareRcfile(
 				conn,
+				nodeploy,
 				() => {
 					const tunnel  = remote_sock .. ':' .. sock_path
 
