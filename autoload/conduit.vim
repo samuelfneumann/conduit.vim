@@ -1567,15 +1567,15 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 					notif,
 					100,
 					100,
-					$"‹✓› {notif_suffix}",
-					{subprefix: '[success]'},
+					notif_suffix,
+					{subprefix: '[‹✓› success]'},
 				)
 				notifier.Dismiss(notif, GetSuccessTimeout())
 			else
 				notifier.Modify(
 					notif,
-					$"‹×› {err_msgs->join(' ‹|› ')}",
-					{subprefix: $'[failed (error: {code})]'},
+					$"{err_msgs->join(' ‹|› ')}",
+					{subprefix: $'[‹×› failed (error: {code})]'},
 				)
 				notifier.Dismiss(notif, GetFailureTimeout())
 			endif
@@ -2838,6 +2838,7 @@ def OpenConduitControlMaster(conn: Connection, Callback: func(number, string): v
             if bufexists(term_bufnr)
                 execute $'bwipeout! {term_bufnr}'
             endif
+			redraw!
 		},
 	})
 enddef
