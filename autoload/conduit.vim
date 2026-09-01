@@ -2871,7 +2871,11 @@ enddef
 # Validates and expands one g:conduit_run_alias entry. Positional arguments are
 # shell-escaped before textual substitution so one argument stays one remote
 # shell word. Braced (${1}) and unbraced ($1) positional forms are supported.
-def ResolveRunAlias(name: string, args: list<string>): tuple<string, string, bool>
+# The special $HOST/${HOST} argument expands to the hostname of the connection,
+# and $KEY/${KEY} expands to the profile key of the connection
+def ResolveRunAlias(
+	name: string, args: list<string>, connection: Connection,
+): tuple<string, string, bool>
 	if !has_key(g:conduit_run_alias, name)
 		throw error.Error.InvalidExecuteCommand.Format(
 			$'run alias "{name}" does not exist',
@@ -2906,6 +2910,17 @@ def ResolveRunAlias(name: string, args: list<string>): tuple<string, string, boo
 	endif
 
 	var command = spec.alias
+
+	# Substitute $HOST or ${HOST} with connection host
+	const host = connection.host
+	command = substitute(command, '\V${HOST}', escape(host, '\&'), 'g')
+	command = substitute(command, '\V$HOST', escape(host, '\&'), 'g')
+
+	# Substitute $KEY or ${KEY} with connection profile key
+	const profile_key = connection.profile_key
+	command = substitute(command, '\V${KEY}', escape(host, '\&'), 'g')
+	command = substitute(command, '\V$KEY', escape(host, '\&'), 'g')
+
 	const values = [name]->extend(args)
 	# Descending replacement prevents $1 from consuming the prefix of $10.
 	for idx in reverse(range(len(values)))
@@ -2913,9 +2928,12 @@ def ResolveRunAlias(name: string, args: list<string>): tuple<string, string, boo
 		command = substitute(command, '\V${' .. idx .. '}', escape(value, '\&'), 'g')
 		command = substitute(command, '\V$' .. idx .. '\m\(\d\)\@!', escape(value, '\&'), 'g')
 	endfor
+
 	# Like unset positional parameters in a shell, references beyond the
 	# supplied argument list expand to the empty string.
 	command = substitute(command, '\$\%({\d\+}\|\d\+\)', '', 'g')
+
+	# Expand errorformat
 	var efm = ''
 	const has_efm = has_key(spec, 'errorformat') || has_key(spec, 'compiler')
 	if has_key(spec, 'errorformat')
@@ -2923,6 +2941,7 @@ def ResolveRunAlias(name: string, args: list<string>): tuple<string, string, boo
 	elseif has_key(spec, 'compiler')
 		efm = ResolveCompilerErrorFormat(spec.compiler)
 	endif
+
 	return (command, efm, has_efm)
 enddef
 
@@ -2980,7 +2999,7 @@ export def ConduitRunCmd(bang: bool, raw: string)
 	if has_key(parsed, 'alias')
 		try
 			[command, alias_efm, has_alias_efm] = ResolveRunAlias(
-				parsed.alias, parsed.alias_args,
+				parsed.alias, parsed.alias_args, conn,
 			)
 		catch
 			Warn(v:exception)
