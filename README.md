@@ -224,7 +224,8 @@ multiplexes through the existing SSH ControlMaster (no re-authentication, even
 under MFA) and attaches another terminal to it. Only when the effective SSH
 options actually differ — e.g. a different jump host — does Conduit track it
 as a separate profile, keyed like `user@host:22-1a2b3c4d5e6f`. Use that key for
-`:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
+`:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, `:Conduit stop`,
+etc.
 
 #### Forwarding flags (`+L`/`+R`/`+D`/`+w`)
 

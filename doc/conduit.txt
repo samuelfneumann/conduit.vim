@@ -32,7 +32,7 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 `_vim` to run the actual vim binary on the remote host.
 
 ==============================================================================
-2. `:Conduit` Command                                      *conduit-commands*
+3. `:Conduit` Command                                      *conduit-commands*
 
 :Conduit {subcommand} ...                                   *:Conduit*
         General command interface for Conduit operations.
@@ -271,6 +271,7 @@ command and terminal that Conduit requires.
 :Conduit socket {connection-key}                            *:Conduit-socket*
         Show the ControlMaster socket path used for {connection-key}.
 
+==============================================================================
 3. Deprecated Commands                                     *conduit-deprecated*
 
 :ConduitOpen {host}                                         *:ConduitOpen*
@@ -484,6 +485,9 @@ or equivalently:
 This is translated to `ssh -J user1@host1 user2@host2` and applies to the
 entire Conduit session.
 
+==============================================================================
+6. Connection profile keys                              *conduit-profile-key*
+
 Conduit identifies each connection by a profile key derived from its host,
 port, and the effective SSH options used to open it (including any
 options set via |g:conduit_host2sshoptions|). Repeating `:Conduit open` for a
@@ -502,7 +506,7 @@ with `:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and
 `:Conduit stop`.
 
 ==============================================================================
-6. Notifications                                            *conduit-notifications*
+7. Notifications                                            *conduit-notifications*
 
 Conduit uses a built-in notifier (based on popup windows) to show progress for
 file transfers and status updates. If `+multi_byte` is enabled, it uses
