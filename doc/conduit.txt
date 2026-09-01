@@ -107,6 +107,8 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         |conduit-forwarding|.
 
 :Conduit run [++cwd=DIR] [++loclist] [++errorformat=EFM] {connection-key} {command}
+:Conduit run {connection-key} ++alias {name} [args ...]
+:Conduit run ++alias {name} [args ...] [++|--] {connection-key}
                                                             *:Conduit-run*
         Run {command} through an existing Conduit SSH connection. Standard
         output and standard error are merged in order and appended live to a
@@ -138,7 +140,21 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
             :Conduit run dev pytest \| tee /tmp/test.log
             :Conduit run ++loclist dev make
             :Conduit run ++errorformat=gcc dev make
+            :Conduit run dev ++alias launch_job input.json
+            :Conduit run ++alias launch_job input.json -- dev
 <
+	Run aliases are read from |g:conduit_run_alias|. The ++/-- separator is
+	required when the connection follows the variadic alias arguments.
+
+g:conduit_run_alias                              *g:conduit_run_alias*
+	A dictionary of remote run aliases. Each value is a dictionary with:
+	  alias     Command text. Separate commands with `;`; `|` remains a shell
+	            pipeline operator.
+	  nargs     A non-negative number, `+`, `*`, or `?`, as for :command-nargs.
+	  errorfmt  Optional 'errorformat' used for this alias.
+	  compiler  Optional compiler plugin whose 'errorformat' is used.
+	Only one of errorfmt and compiler may be present. `$0` expands to the alias
+	name and `$1`, `$2`, ... expand to shell-escaped invocation arguments.
         Relative filenames parsed from diagnostics are resolved against the
         actual remote working directory. Quickfix jumps use the full Conduit
         profile, including its identity, port, jump host, and ControlPath.
