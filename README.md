@@ -71,6 +71,9 @@ Then, read the docs:
 " Start an interactive SSH terminal in a hidden buffer, useful for `:Conduit run`
 :Conduit open ++hidden user@example.com
 
+" Reuse the RC file deployed by an earlier open in this Vim instance
+:Conduit open ++nodeploy user@example.com
+
 " `:Conduit open` works with modifiers and bar!
 :tab Conduit open user@example.com
 :topleft Conduit open user@example.com
@@ -114,6 +117,11 @@ Then, read the docs:
 ```
 
 `open` and `deploy` accept short-form options with `+` and long-form options with `++`; the option itself determines whether it configures SSH or Vim's terminal. See [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
+
+`++nodeploy` skips uploading the generated RC file and uses the file left by an
+earlier `:Conduit open` for the same connection profile. Use a normal open
+first. The file is temporary and may be removed when the last Conduit terminal
+for that profile closes, or when Vim exits.
 
 ### Remote tasks and quickfix
 
