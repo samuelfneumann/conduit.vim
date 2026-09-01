@@ -119,42 +119,73 @@ Then, read the docs:
 :Conduit disconnect user@example.com
 ```
 
-`open` and `deploy` accept short-form options with `+` and long-form options with `++`; the option itself determines whether it configures SSH or Vim's terminal. See [SSH Options](#ssh-options) below. Conduit reads your SSH config. You can replace each `user@example.com` above with an SSH alias defined in your SSH config, for example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit` provides a more detailed explanation of `:Conduit` usage.
+Subcommands like`open` and `run` accept short-form options with `+` and
+long-form options with `++`. Options are shown in autocomplete with `wildchar`.
+Different options configure how SSH works or Vim's terminal. For example
+`:Conduit open ++curwin user@host` opens Conduit in the current window.
+`:Conduit open ++proxyjump user1@host1 user2@host2` uses an SSH ProxyJump. See
+[SSH Options](#ssh-options) below or the help pages for more information of
+subcommands and option. Conduit reads your SSH config. You can replace each
+`user@example.com` above with an SSH alias defined in your SSH config, for
+example `:Conduit open ALIAS` or `:Conduit exit ALIAS`. `:help :Conduit`
+provides a more detailed explanation of `:Conduit` usage.
 
-`++nodeploy` skips uploading the generated RC file and uses the file left by an
-earlier `:Conduit open` for the same connection profile. Use a normal open
-first. The file is temporary and may be removed when the last Conduit terminal
-for that profile closes, or when Vim exits.
 
-### Remote tasks and quickfix
+### `:Conduit run`: Remote tasks and quickfix
 
-`:Conduit run [++cwd=DIR] [++errorformat=EFM] CONNECTION COMMAND` executes
-`COMMAND` through the existing multiplexed SSH connection. Standard output and
-standard error are merged in order and added live to a new quickfix list using
-the local `'errorformat'` value captured when the task starts. Relative
-diagnostic paths are resolved against the actual remote working directory, and
-quickfix jumps open the file through the exact Conduit profile that ran the
-task. Plain output lines that resolve to real remote files are also made
-jumpable, which makes commands such as `ls`, `find`, and `git ls-files` useful
+You can quickly run a command through an existing multiplexed SSH connection
+using `:Conduit run [OPTS] CONNECTION COMMAND`. This executes `COMMAND` through
+an existing multiplexed SSH connection `CONNECTION`. Standard output and
+standard error are merged and added live to a new quickfix list using
+`'errorformat'`. Relative paths are resolved against the actual
+remote working directory, and quickfix jumps open the file through the exact
+Conduit profile that ran the task. Plain output lines that resolve to real
+remote files are also made jumpable, which makes commands such as `ls`, `find`,
+and `git ls-files` useful directly from quickfix.
+`:Conduit run` takes a number of options, see `:help :Conduit-run`.
 
-Run options may appear before or after `CONNECTION`; Conduit continues parsing
-recognized options until ordinary command text begins. Use `++` or `--` to run
-a remote command whose first token would otherwise be recognized as an option.
-directly from quickfix. Other output remains visible as non-jumpable quickfix
-text.
+`:Conduit run` has a few useful options:
+* `++loclist` streams the output to the current window's location list rather
+    than the quickfix.
+* `++errorformat=EFM` specifies the error format for this run only. `EFM` is
+    resolved as, in order: a key in `g:conduit_errorformat` (a dictionary mapping
+    your own aliases to `'errorformat'` strings); a `:compiler` plugin named `EFM`,
+    whose `'errorformat'` Conduit borrows without disturbing the invoking window's
+    own compiler state; or, failing both, `EFM` itself taken as a literal
+    `'errorformat'` string.
+* `++cwd=CWD` runs the command from `CWD`
 
-Run aliases are configured in `g:conduit_run_alias` and invoked with
-`:Conduit run CONNECTION ++alias NAME ARGS...`. Because alias arguments are
-variadic, putting the connection last requires an explicit option terminator:
-`:Conduit run ++alias NAME ARGS... ++ CONNECTION` (or `-- CONNECTION`). Each
-alias entry has an `alias` command string and a Vim-style `nargs` value (a
+#### Command Aliases
+
+One useful option is `++alias`, which runs a command alias. Conduit aliases are
+short names for (potentially very long) shell commands that can be passed to `:Conduit run`.
+The power of aliases is that they allow you to parameterize commands with arguments.
+Aliases are configured in `g:conduit_run_alias` and invoked with
+`:Conduit run CONNECTION ++alias NAME ARGS...`. Alias arguments are
+variadic, so putting the connection last requires an explicit option terminator:
+`:Conduit run ++alias NAME ARGS... ++ CONNECTION`. 
+
+An alias is defined in `g:conduit_run_alias` as a dict with an
+`alias` key, whose value is the command string, and an `nargs` key, whose value
+determines how many arguments to expect for that alias (a
 non-negative number, `+`, `*`, or `?`). It may also have either `errorformat` or
-`compiler`, but not both. Positional `$0`, `$1`, ... substitutions follow shell
-conventions, with `$0` naming the alias. Separate commands with `;`; `|` keeps
-its normal remote-shell pipeline meaning.
-
-As with other value-taking long options, the alias name may be attached with
+`compiler`, but not both. For example
+```
+g:conduit_run_alis = {
+    example_alias: {
+        command: "echo $1 > ${HOST}_testfile.txt && echo $2 > ${KEY}_testfile.txt",
+        nargs: 2,
+        compiler: "",
+    }
+}
+```
+This defines an alias that echos its first argument into a file that is defined
+by the hostname of the SSH connection and echos its second argument into a file
+that is defined by the connection key of the SSH connection. You could invoke
+it as `:Conduit run CONNECTION ++alias example_alias ARG1 ARG2`. 
+As with other value-taking options, the alias name may be attached with
 `=`: `:Conduit run CONNECTION ++alias=NAME ARGS...`.
+See `:help g:conduit_run_alias` for more information on defining aliases.
 
 Alias arguments are variadic, but a recognized run option ends the argument
 list. This makes `CONNECTION ++alias NAME ARGS... ++cwd=DIR` equivalent to
@@ -164,16 +195,9 @@ arguments when the connection has not yet been supplied.
 When `++cwd` is omitted, Conduit uses the directory of the current remote
 buffer if it belongs to the selected connection. Otherwise, the task starts in
 the remote login home. Options use Conduit's Vim-style `+` convention and must
-come before the connection; everything after the connection is untouched
-remote shell text. As elsewhere in Conduit, the `=` is optional — `++cwd DIR`
+come **before** the connection; everything after the connection is untouched
+remote shell text. As elsewhere in Conduit, the `=` is optional ─ `++cwd DIR`
 and `++errorformat EFM` work as well as the `=`-joined form.
-
-`++errorformat=EFM` overrides `'errorformat'` for this run only. `EFM` is
-resolved as, in order: a key in `g:conduit_errorformat` (a dictionary mapping
-your own aliases to `'errorformat'` strings); a `:compiler` plugin named `EFM`,
-whose `'errorformat'` Conduit borrows without disturbing the invoking window's
-own compiler state; or, failing both, `EFM` itself taken as a literal
-`'errorformat'` string.
 
 Use `:Conduit! run CONNECTION` to rerun that connection's last completed task.
 The bang belongs to `:Conduit`, as required by Ex command syntax;

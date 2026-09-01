@@ -26,7 +26,8 @@ In the remote shell:
 - `lvim file.txt` opens "file.txt" in your local Vim using netrw.
 - `lvim split file.txt` opens it in a horizontal split.
 - `lvim put file.txt` uploads a local "file.txt" to your remote CWD.
-- `lvim get local_file.txt` downloads a remote file.
+- `lvim get remote_file.txt` downloads a remote file.
+- `lvim open remote_file.txt` opens a remote file in the system's default program
 
 If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 `_vim` to run the actual vim binary on the remote host.
@@ -95,6 +96,7 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         must not be. Both forms are closed, validated sets: only the options
         listed above are accepted. A bare `++` (or `--`) by itself stops
         option parsing before the host.
+
 
 :Conduit deploy [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-deploy*
@@ -468,6 +470,8 @@ File Transfer Operations:
 - get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}. If `{local_file}` is omitted, Conduit uses the local current directory.
 - mget {pat}: Download remote files matching {pat}. If `{pat}` is not quoted, it will expand on the server and each individual file will be downloaded.
 - mput {pat}: Upload local files matching {pat}. If no destination is provided, Conduit uses the remote shell's current directory. `{pat}` must be quoted, otherwise it will be expanded before by the shell before Conduit can access it.
+
+File Viewing Operations:
 - open {remote_file}: Download one remote file to a temporary local file and
   open it in the local system default application. Conduit removes the
   temporary file when Vim exits.
@@ -476,18 +480,6 @@ If no operation is provided, |g:conduit_default_split| is used.
 
 For `put`, if the local path is not found, conduit will attempt a fuzzy
 search in the local CWD up to |g:conduit_put_max_depth|.
-
-`Conduit open` and `Conduit deploy` also accept SSH options before the host,
-using either their short or long spelling:
-
-`:Conduit open +J user1@host1 user2@host2`
-
-or equivalently:
-
-`:Conduit open ++proxyjump user1@host1 user2@host2`
-
-This is translated to `ssh -J user1@host1 user2@host2` and applies to the
-entire Conduit session.
 
 ==============================================================================
 6. Connection profile keys                              *conduit-profile-key*
