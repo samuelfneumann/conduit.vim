@@ -144,7 +144,7 @@ Run aliases are configured in `g:conduit_run_alias` and invoked with
 variadic, putting the connection last requires an explicit option terminator:
 `:Conduit run ++alias NAME ARGS... ++ CONNECTION` (or `-- CONNECTION`). Each
 alias entry has an `alias` command string and a Vim-style `nargs` value (a
-non-negative number, `+`, `*`, or `?`). It may also have either `errorfmt` or
+non-negative number, `+`, `*`, or `?`). It may also have either `errorformat` or
 `compiler`, but not both. Positional `$0`, `$1`, ... substitutions follow shell
 conventions, with `$0` naming the alias. Separate commands with `;`; `|` keeps
 its normal remote-shell pipeline meaning.

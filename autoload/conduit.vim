@@ -2880,14 +2880,14 @@ def ResolveRunAlias(name: string, args: list<string>): tuple<string, string, boo
 			$'run alias "{name}" expects {string(spec.nargs)} arguments, got {len(args)}',
 		)
 	endif
-	if has_key(spec, 'errorfmt') && has_key(spec, 'compiler')
+	if has_key(spec, 'errorformat') && has_key(spec, 'compiler')
 		throw error.Error.InvalidExecuteCommand.Format(
-			$'run alias "{name}" cannot specify both errorfmt and compiler',
+			$'run alias "{name}" cannot specify both errorformat and compiler',
 		)
 	endif
-	if has_key(spec, 'errorfmt') && type(spec.errorfmt) != v:t_string
+	if has_key(spec, 'errorformat') && type(spec.errorformat) != v:t_string
 		throw error.Error.InvalidExecuteCommand.Format(
-			$'run alias "{name}" errorfmt must be a string',
+			$'run alias "{name}" errorformat must be a string',
 		)
 	endif
 	if has_key(spec, 'compiler') && type(spec.compiler) != v:t_string
@@ -2908,9 +2908,9 @@ def ResolveRunAlias(name: string, args: list<string>): tuple<string, string, boo
 	# supplied argument list expand to the empty string.
 	command = substitute(command, '\$\%({\d\+}\|\d\+\)', '', 'g')
 	var efm = ''
-	const has_efm = has_key(spec, 'errorfmt') || has_key(spec, 'compiler')
-	if has_key(spec, 'errorfmt')
-		efm = spec.errorfmt
+	const has_efm = has_key(spec, 'errorformat') || has_key(spec, 'compiler')
+	if has_key(spec, 'errorformat')
+		efm = spec.errorformat
 	elseif has_key(spec, 'compiler')
 		efm = ResolveCompilerErrorFormat(spec.compiler)
 	endif

@@ -151,9 +151,9 @@ g:conduit_run_alias                              *g:conduit_run_alias*
 	  alias     Command text. Separate commands with `;`; `|` remains a shell
 	            pipeline operator.
 	  nargs     A non-negative number, `+`, `*`, or `?`, as for :command-nargs.
-	  errorfmt  Optional 'errorformat' used for this alias.
+	  errorformat  Optional 'errorformat' used for this alias.
 	  compiler  Optional compiler plugin whose 'errorformat' is used.
-	Only one of errorfmt and compiler may be present. `$0` expands to the alias
+	Only one of errorformat and compiler may be present. `$0` expands to the alias
 	name and `$1`, `$2`, ... expand to shell-escaped invocation arguments.
         Relative filenames parsed from diagnostics are resolved against the
         actual remote working directory. Quickfix jumps use the full Conduit

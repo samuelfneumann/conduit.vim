@@ -141,7 +141,7 @@ let g:conduit_run_alias = {
 	\ 'launch_job': {
 	\   'alias': 'echo $0; echo $1:4:oops; echo DONE:$2',
 	\   'nargs': 2,
-	\   'errorfmt': '%f:%l:%m',
+	\   'errorformat': '%f:%l:%m',
 	\ },
 	\ 'optional': {'alias': 'echo OPTIONAL:${1}', 'nargs': '?'},
 	\ 'many': {'alias': 'echo MANY:$1:$2', 'nargs': '*'},
@@ -187,10 +187,10 @@ call assert_match('C004:.*alias "missing" does not exist', execute('messages'))
 messages clear
 let g:conduit_run_alias.bad_efm = {
 	\ 'alias': 'echo bad', 'nargs': 0,
-	\ 'errorfmt': '%m', 'compiler': 'conduittest',
+	\ 'errorformat': '%m', 'compiler': 'conduittest',
 	\ }
 Conduit run testhost ++alias bad_efm
-call assert_match('C004:.*cannot specify both errorfmt and compiler', execute('messages'))
+call assert_match('C004:.*cannot specify both errorformat and compiler', execute('messages'))
 messages clear
 
 Conduit run ++cwd=/tmp testhost echo main.c:3:2: error: boom
