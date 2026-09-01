@@ -1,0 +1,29 @@
+#!/bin/sh
+
+previous=
+last=
+for arg do
+	previous=$last
+	last=$arg
+done
+
+if [ -n "${CONDUIT_TEST_RSYNC:-}" ]; then
+	printf '%s\n' "$*" >> "$CONDUIT_TEST_RSYNC"
+fi
+
+case "$previous" in
+	*:*)
+		printf '%s\n' 'remote fixture' > "$last"
+		;;
+	*)
+		case "$last" in
+			*:*)
+				if [ -n "${CONDUIT_TEST_UPLOAD:-}" ]; then
+					cp "$previous" "$CONDUIT_TEST_UPLOAD"
+				fi
+				;;
+		esac
+		;;
+esac
+
+exit 0

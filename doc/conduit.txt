@@ -3,8 +3,9 @@
                                  CONDUIT.VIM                                 *conduit*
 
 Conduit.vim provides seamless integration between your local Vim instance and
-remote SSH sessions. It allows you to open files from a remote shell directly
-in your local Vim, and perform background file transfers (get/put) with
+remote SSH sessions (currently supports zsh, bash, and sh) in the vim
+terminal. It allows you to open files from a remote shell directly in your
+local Vim, and perform background file transfers (get/put/mget/mput) with
 progress notifications.
 
 NOTE: This plugin requires Vim 9.1 or later with +job, +popupwin, and
@@ -47,21 +48,42 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         a space-separated value.
 
         SSH options have both forms:
-        `+B` / `++bindinterface`, `+b` / `++bindaddress`,
-        `+c` / `++cipher`, `+D` / `++dynamicforward`,
-        `+E` / `++logfile`, `+F` / `++config`, `+I` / `++pkcs11`,
-        `+i` / `++identity`, `+J` / `++proxyjump`, `+l` / `++login`,
-        `+L` / `++localforward`, `+m` / `++mac`, `+o` / `++option`,
-        `+p` / `++port`, `+Q` / `++query`,
-        `+R` / `++remoteforward`, and `+w` / `++tunnel`.
+	    `+B` / `++bindinterface`
+	    `+b` / `++bindaddress`
+	    `+c` / `++cipher`
+	    `+D` / `++dynamicforward`
+	    `+E` / `++logfile`
+	    `+F` / `++config`
+	    `+I` / `++pkcs11`
+	    `+i` / `++identity`
+	    `+J` / `++proxyjump`
+	    `+l` / `++login`
+	    `+L` / `++localforward`
+	    `+m` / `++mac`
+	    `+o` / `++option`
+	    `+p` / `++port`
+	    `+Q` / `++query`
+	    `+R` / `++remoteforward`
+	    `+w` / `++tunnel`
         For example, `+p 2222` and `++port 2222` are equivalent, as are
         `+J user@bastion` and `++proxyjump user@bastion`. See
         |conduit-forwarding| for how forwarding options are scoped.
 
-        Vim terminal options currently use long form: `++curwin`,
-        `++vertical`, `++hidden`, `++norestore`, `++open`, `++close`,
-        `++noclose`, `++shell`, `++rows=N`, `++cols=N`, `++eof=...`,
-        `++api=...`, `++kill=...`, and `++opencmd=...`.
+        Vim terminal options currently use long form:
+	    `++curwin`
+	    `++vertical`
+	    `++hidden`
+	    `++norestore`
+	    `++open`
+	    `++close`
+	    `++noclose`
+	    `++shell`
+	    `++rows=N`
+	    `++cols=N`
+	    `++eof=...`
+	    `++api=...`
+	    `++kill=...`
+	    `++opencmd=...`
 
         A short-form name must be exactly one character; a long-form name
         must not be. Both forms are closed, validated sets: only the SSH and
@@ -77,6 +99,97 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         this still opens its own background SSH session to carry the
         `lvim` reverse tunnel (and any forwarding option you request) — see
         |conduit-forwarding|.
+
+:Conduit run [++cwd=DIR] [++loclist] [++errorformat=EFM] {connection-key} {command}
+                                                            *:Conduit-run*
+        Run {command} through an existing Conduit SSH connection. Standard
+        output and standard error are merged in order and appended live to a
+        new quickfix list using the current value of 'errorformat'.
+
+        `++cwd=DIR` selects the remote working directory. Like other Conduit
+        options, it uses Vim's `+` convention and appears before the
+        connection key. If omitted, Conduit uses the current remote buffer's
+        directory when it belongs to the same connection; otherwise it uses
+        the remote login home. As with other value-taking Conduit options,
+        `=DIR` may instead be given as a space-separated value (`++cwd DIR`).
+
+        `++loclist` sends the output to a location list instead — see
+        |conduit-run-loclist|.
+
+        `++errorformat=EFM` (or `++errorformat EFM`) overrides 'errorformat'
+        for this run only, resolved in order — see |g:conduit_errorformat|:
+        1. A key in |g:conduit_errorformat|, an alias-to-errorformat
+           dictionary.
+        2. A compiler plugin named EFM (as in |:compiler|). Conduit loads it
+           to grab its 'errorformat', then restores whatever compiler state
+           the invoking window had before the run.
+        3. Otherwise, EFM itself, taken as a literal 'errorformat' string.
+
+        Everything after {connection-key} is preserved as remote shell text.
+        Escape a pipeline bar for Ex command parsing:
+>
+            :Conduit run ++cwd=/srv/app dev make test
+            :Conduit run dev pytest \| tee /tmp/test.log
+            :Conduit run ++loclist dev make
+            :Conduit run ++errorformat=gcc dev make
+<
+        Relative filenames parsed from diagnostics are resolved against the
+        actual remote working directory. Quickfix jumps use the full Conduit
+        profile, including its identity, port, jump host, and ControlPath.
+        Plain output lines which resolve to real remote files are also made
+        jumpable, supporting commands such as `ls`, `find`, and
+        `git ls-files`. Other output remains as non-jumpable quickfix text.
+
+                                                        *conduit-run-quickfix*
+        Jumpable entries name the remote file relative to the task's
+        working directory, falling back to the absolute remote path for
+        files outside it. This keeps the quickfix window readable, since
+        the underlying remote buffer is named after a hash. Entries
+        promoted from plain output carry no line or column number: the
+        output named a file, not a position inside it, so jumping to one
+        opens the file and leaves the cursor where it last was.
+
+        When the task completes, its outcome and entry counts are appended
+        to the quickfix title, which stays visible in the quickfix window
+        after the notification has timed out:
+>
+            [Conduit run dev] make (finished, 1 entry)
+            [Conduit run dev] make (stopped, 0 entries)
+            [Conduit run dev] make (exit 2, 12 entries, 3 jumpable)
+<
+        The jumpable count is only appended when it differs from the total
+        entry count.
+
+                                                        *conduit-run-loclist*
+        With `++loclist`, output goes to the location list of the window the
+        command was invoked from, exactly as |:lmake| and |:lgrep| behave.
+        Which conduit terminals exist for the host, and whether any of them
+        is visible, has no bearing on it: runs travel over the connection's
+        ControlMaster, not through a terminal.
+
+        This is how you keep concurrent runs apart. Launch one per window
+        and each keeps its own list, instead of the runs stacking up in the
+        single shared quickfix list.
+
+        A location list belongs to its window, which brings two consequences:
+
+        - Invoking `++loclist` from a quickfix window or a terminal window
+          is refused with a warning, and the run falls back to the quickfix
+          list.
+        - Closing the window mid-run frees the list while the command is
+          still producing output. The remaining output is discarded and the
+          completion notification says so; the task itself is unaffected.
+
+        Auto-opening (|g:conduit_run_auto_open_quickfix|) uses |:lwindow|,
+        and only fires when the invoking window is still the current one.
+
+:Conduit! run {connection-key}                              *:Conduit-run-bang*
+        Rerun the last completed task for this connection, preserving its
+        command, resolved working directory, 'errorformat', and whether it
+        targeted a location list. The owning window is resolved afresh, so a
+        rerun follows the window you are in rather than the original one.
+        The bang is attached to `:Conduit`; `:Conduit run!` is not
+        supported.
 
                                                             *conduit-forwarding*
 SSH forwarding flags (`+L`, `+R`, `+D`, `+w`) are only applied to the one new
@@ -116,10 +229,11 @@ command and terminal that Conduit requires.
         Show a history of conduit notifications or dismiss all active
         notifications.
 
-:Conduit stop {get|put|*} {connection-key} {pattern}        *:Conduit-stop*
-        Stop ongoing transfer jobs. `pattern` is fuzzily matched against the
-        transfer's local and remote file names. Use `*` to stop all matching
-        jobs for that connection and transfer type.
+:Conduit stop {get|put|run|*} {connection-key} {pattern}    *:Conduit-stop*
+        Stop ongoing transfer or run jobs. For transfers, `pattern` is fuzzily
+        matched against the local and remote file names. For runs, it is
+        matched against the command and working directory. Use `*` to stop all
+        matching jobs for that connection and operation type.
 
         Connection keys are resolved by exact key, by host name, or by a
         unique prefix. When multiple profiles are open for the same host, use
@@ -199,7 +313,12 @@ g:conduit_fallback_shell                                    *g:conduit_fallback_
         Default: "bash"
 
 g:conduit_host2shell                                        *g:conduit_host2shell*
-        Dictionary mapping hostnames to remote shell paths.
+        Dictionary mapping hostnames to remote shells or shell paths. Only
+	supports zsh, bash, or sh. If specifying a shell name only (e.g.
+	"zsh", "bash"), it must exist on the remote servers's `PATH`. If a
+	path is specified (e.g. "/usr/bin/bash"), the shell name is assumed to
+	be the path basename. Does not fallback to `g:conduit_fallback_shell`
+	on error.
         Default: {}
 
 g:conduit_default_control_persist                           *g:conduit_default_control_persist*
@@ -242,8 +361,20 @@ g:conduit_echo_socket				    *g:conduit_echo_socket*
 	in a notification.
         Default: false
 
+g:conduit_run_auto_open_quickfix             *g:conduit_run_auto_open_quickfix*
+        When true, run `:cwindow` after the current remote task completes,
+        or `:lwindow` for a |conduit-run-loclist| task. When false, keep
+        focus unchanged and include the list number and a `:copen` (or
+        `:lopen`) hint in the completion notification.
+
+g:conduit_errorformat                                       *g:conduit_errorformat*
+        Dictionary mapping user-chosen aliases to 'errorformat' strings, for
+        use with |:Conduit-run|'s `++errorformat=EFM` option.
+        Default: {}
+        Default: true
+
 ==============================================================================
-5. Remote Command (lvim)                                    *conduit-lvim*
+5. Remote Command (`lvim`)                                    *conduit-lvim*
 
 The `lvim` command is injected into the remote shell. It supports the
 following syntax:
