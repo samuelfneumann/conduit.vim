@@ -3747,6 +3747,14 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 	elseif cmd ==# 'run'
 		var run_parts = len(parts) > 2 ? parts[2 : ] : []
 		const ends_in_space = current_cmd =~# '\s$'
+		const alias_idx = index(run_parts, '++alias')
+		const completing_alias = alias_idx >= 0
+			&& ((ends_in_space && alias_idx == len(run_parts) - 1)
+				|| (!ends_in_space && alias_idx == len(run_parts) - 2))
+		if completing_alias
+			const aliases = sort(keys(g:conduit_run_alias))
+			return empty(ArgLead) ? aliases : matchfuzzy(aliases, ArgLead)
+		endif
 		var completed = copy(run_parts)
 		if !ends_in_space && !empty(completed)
 			completed->remove(-1)

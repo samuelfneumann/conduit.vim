@@ -152,6 +152,18 @@ let g:conduit_run_alias = {
 	\   'compiler': 'conduittest',
 	\ },
 	\ }
+call assert_equal(
+	\ ['compiled', 'launch_job', 'many', 'optional', 'pipeline'],
+	\ conduit#ConduitCompl('', 'Conduit run ++alias ', strlen('Conduit run ++alias ') + 1),
+	\ )
+call assert_equal(
+	\ ['launch_job'],
+	\ conduit#ConduitCompl(
+	\   'lau',
+	\   'Conduit run testhost ++alias lau',
+	\   strlen('Conduit run testhost ++alias lau') + 1,
+	\ ),
+	\ )
 Conduit run testhost ++alias launch_job alias.c two\ words
 sleep 500m
 let run_alias_qf = getqflist({'items': 0, 'context': 0})
