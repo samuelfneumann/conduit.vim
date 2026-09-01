@@ -133,8 +133,10 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
            the invoking window had before the run.
         3. Otherwise, EFM itself, taken as a literal 'errorformat' string.
 
-        Everything after {connection-key} is preserved as remote shell text.
-        Escape a pipeline bar for Ex command parsing:
+	Once ordinary command text begins, it is preserved as remote shell text.
+	Recognized run options may also follow {connection-key}; option parsing
+	continues until ordinary command text begins. Use `++` or `--` to terminate
+	option parsing explicitly. Escape a pipeline bar for Ex command parsing:
 >
             :Conduit run ++cwd=/srv/app dev make test
             :Conduit run dev pytest \| tee /tmp/test.log
@@ -145,6 +147,8 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 <
 	Run aliases are read from |g:conduit_run_alias|. The ++/-- separator is
 	required when the connection follows the variadic alias arguments.
+	Alias arguments end at the next recognized run option, so options such as
+	++cwd and ++loclist may also follow the arguments.
 
 g:conduit_run_alias                              *g:conduit_run_alias*
 	A dictionary of remote run aliases. Each value is a dictionary with:

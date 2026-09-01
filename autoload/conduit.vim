@@ -2240,12 +2240,30 @@ def NextRunToken(raw: string, start: number): tuple<string, number>
 	return (token, pos)
 enddef
 
+def RunTokenStart(raw: string, token_end: number): number
+	var start = token_end
+	while start > 0
+		var candidate = start - 1
+		if raw[candidate] =~# '\s'
+			var slashes = 0
+			var before = candidate - 1
+			while before >= 0 && raw[before] ==# '\'
+				slashes += 1
+				before -= 1
+			endwhile
+			if slashes % 2 == 0 | break | endif
+		endif
+		start = candidate
+	endwhile
+	return start
+enddef
+
 # Parses the argument string of `:Conduit[!] run` into
 # {connection, command, cwd, loclist, errorformat}. Alias runs additionally
 # have {alias, alias_args}. With `bang`, `raw` is
 # just a connection key (reruns reuse the previous command/cwd/efm verbatim
-# and reject any trailing text); otherwise it is
-# `[++cwd=...] [++loclist] [++errorformat=...] connection command...`.
+# and reject any trailing text). On a fresh run, recognized options may occur
+# on either side of the connection until ordinary command text begins.
 export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 	var pos = 0
 	var cwd = ''
@@ -2273,145 +2291,132 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 		return {connection: token, command: '', cwd: '', loclist: false, errorformat: ''}
 	endif
 
-	while token =~# '^+'
-		if token ==# '++' || token ==# '--'
-			throw error.Error.InvalidConduitOption.Format(
-				$'option terminator "{token}" is only valid after ++alias',
-			)
-		endif
-		if token !~# '^++'
-			throw error.Error.InvalidConduitOption.Format(
-				$'option "{token}" is unknown',
-			)
-		endif
+	var collecting_alias_args = false
+	while !empty(token)
+		const token_end = pos
+		const token_start = RunTokenStart(raw, token_end)
 
-		const opt = token[2 :]
+		const opt = token =~# '^++' ? token[2 :] : ''
 		const eq_idx = stridx(opt, '=')
 		const has_eq = eq_idx >= 0
 		const name = has_eq ? opt[: eq_idx - 1] : opt
+		const recognized = index(['cwd', 'loclist', 'errorformat', 'alias'], name) >= 0
 
-		if name ==# 'cwd'
-			var value: string
-			if has_eq
-				value = opt[eq_idx + 1 :]
-			else
-				[value, pos] = NextRunToken(raw, pos)
-			endif
-			if !empty(cwd) || empty(value)
-				throw error.Error.InvalidConduitOption.Format(
-					'++cwd requires one non-empty value',
-				)
-			endif
-			cwd = value
-		elseif name ==# 'loclist'
-			if has_eq
-				throw error.Error.InvalidConduitOption.Format(
-					'++loclist does not take a value',
-				)
-			endif
-			if loclist
-				throw error.Error.InvalidConduitOption.Format(
-					'++loclist may only be given once',
-				)
-			endif
-			loclist = true
-		elseif name ==# 'errorformat'
-			var value: string
-			if has_eq
-				value = opt[eq_idx + 1 :]
-			else
-				[value, pos] = NextRunToken(raw, pos)
-			endif
-			if !empty(errorformat) || empty(value)
-				throw error.Error.InvalidConduitOption.Format(
-					'++errorformat requires one non-empty value',
-				)
-			endif
-			errorformat = value
-		elseif name ==# 'alias'
-			if has_eq || !empty(alias)
-				throw error.Error.InvalidConduitOption.Format(
-					'++alias must be given once followed by an alias name',
-				)
-			endif
-			[alias, pos] = NextRunToken(raw, pos)
-			if empty(alias)
-				throw error.Error.InvalidConduitOption.Format(
-					'++alias requires a non-empty alias name',
-				)
-			endif
-
-			var arg: string
-			[arg, pos] = NextRunToken(raw, pos)
-			while !empty(arg) && arg !=# '++' && arg !=# '--'
-				alias_args->add(arg)
-				[arg, pos] = NextRunToken(raw, pos)
-			endwhile
-			if empty(arg)
-				throw error.Error.MissingHost.Format(
-					'missing ++/-- and connection key after ++alias arguments',
-				)
-			endif
-			[connection, pos] = NextRunToken(raw, pos)
-			var trailing: string
-			[trailing, pos] = NextRunToken(raw, pos)
-			if empty(connection) || !empty(trailing)
-				throw error.Error.InvalidConduitCommand.Format(
-					'++/-- must be followed by exactly one connection key',
-				)
-			endif
-			return {
-				connection: connection, command: '', cwd: cwd,
-				loclist: loclist, errorformat: errorformat,
-				alias: alias, alias_args: alias_args,
-			}
-		else
-			throw error.Error.InvalidConduitOption.Format(
-				$'option "{token}" is unknown',
-			)
+		if collecting_alias_args && !recognized && token !=# '++' && token !=# '--'
+			alias_args->add(token)
+			[token, pos] = NextRunToken(raw, pos)
+			continue
 		endif
-		[token, pos] = NextRunToken(raw, pos)
+
+		if token ==# '++' || token ==# '--'
+			if collecting_alias_args && empty(connection)
+				[connection, pos] = NextRunToken(raw, pos)
+				if empty(connection)
+					throw error.Error.MissingHost.Format('missing connection key')
+				endif
+				[token, pos] = NextRunToken(raw, pos)
+				continue
+			elseif collecting_alias_args
+				# With a known connection, the terminator makes all remaining
+				# tokens literal alias arguments, including recognized options.
+				[token, pos] = NextRunToken(raw, pos)
+				while !empty(token)
+					alias_args->add(token)
+					[token, pos] = NextRunToken(raw, pos)
+				endwhile
+				break
+			endif
+
+			# Outside alias mode, a terminator makes the next positional token
+			# the connection (if needed), then preserves the command verbatim.
+			if empty(connection)
+				[connection, pos] = NextRunToken(raw, pos)
+				if empty(connection)
+					throw error.Error.MissingHost.Format('missing connection key')
+				endif
+			endif
+			const command = trim(strpart(raw, pos))
+			if empty(command)
+				throw error.Error.InvalidExecuteCommand.Format('missing remote command')
+			endif
+			return {connection: connection, command: command, cwd: cwd,
+				loclist: loclist, errorformat: errorformat}
+		endif
+
+		if recognized
+			collecting_alias_args = false
+			if name ==# 'cwd'
+				var value: string
+				if has_eq
+					value = opt[eq_idx + 1 :]
+				else
+					[value, pos] = NextRunToken(raw, pos)
+				endif
+				if !empty(cwd) || empty(value)
+					throw error.Error.InvalidConduitOption.Format(
+						'++cwd requires one non-empty value')
+				endif
+				cwd = value
+			elseif name ==# 'loclist'
+				if has_eq || loclist
+					throw error.Error.InvalidConduitOption.Format(has_eq
+						? '++loclist does not take a value'
+						: '++loclist may only be given once')
+				endif
+				loclist = true
+			elseif name ==# 'errorformat'
+				var value: string
+				if has_eq
+					value = opt[eq_idx + 1 :]
+				else
+					[value, pos] = NextRunToken(raw, pos)
+				endif
+				if !empty(errorformat) || empty(value)
+					throw error.Error.InvalidConduitOption.Format(
+						'++errorformat requires one non-empty value')
+				endif
+				errorformat = value
+			else
+				if has_eq || !empty(alias)
+					throw error.Error.InvalidConduitOption.Format(
+						'++alias must be given once followed by an alias name')
+				endif
+				[alias, pos] = NextRunToken(raw, pos)
+				if empty(alias)
+					throw error.Error.InvalidConduitOption.Format(
+						'++alias requires a non-empty alias name')
+				endif
+				collecting_alias_args = true
+			endif
+			[token, pos] = NextRunToken(raw, pos)
+			continue
+		endif
+
+		if empty(connection)
+			if token =~# '^+'
+				throw error.Error.InvalidConduitOption.Format($'option "{token}" is unknown')
+			endif
+			connection = token
+			[token, pos] = NextRunToken(raw, pos)
+			continue
+		endif
+
+		if !empty(alias)
+			throw error.Error.InvalidConduitCommand.Format(
+				$'unexpected argument "{token}" after alias options')
+		endif
+		return {connection: connection, command: trim(strpart(raw, token_start)),
+			cwd: cwd, loclist: loclist, errorformat: errorformat}
 	endwhile
 
-	if empty(token)
+	if empty(connection)
 		throw error.Error.MissingHost.Format('missing connection key')
 	endif
-
-	connection = token
-	var next: string
-	var next_pos: number
-	[next, next_pos] = NextRunToken(raw, pos)
-	if next ==# '++alias'
-		[alias, pos] = NextRunToken(raw, next_pos)
-		if empty(alias)
-			throw error.Error.InvalidConduitOption.Format(
-				'++alias requires a non-empty alias name',
-			)
-		endif
-		var arg: string
-		[arg, pos] = NextRunToken(raw, pos)
-		while !empty(arg)
-			alias_args->add(arg)
-			[arg, pos] = NextRunToken(raw, pos)
-		endwhile
-		return {
-			connection: connection, command: '', cwd: cwd,
-			loclist: loclist, errorformat: errorformat,
-			alias: alias, alias_args: alias_args,
-		}
-	endif
-	const command = trim(strpart(raw, pos))
-	if empty(command)
+	if empty(alias)
 		throw error.Error.InvalidExecuteCommand.Format('missing remote command')
 	endif
-
-	return {
-		connection: connection,
-		command: command,
-		cwd: cwd,
-		loclist: loclist,
-		errorformat: errorformat,
-	}
+	return {connection: connection, command: '', cwd: cwd, loclist: loclist,
+		errorformat: errorformat, alias: alias, alias_args: alias_args}
 enddef
 
 # Default cwd for a run with no explicit ++cwd: the directory of the
@@ -3759,9 +3764,41 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		if !ends_in_space && !empty(completed)
 			completed->remove(-1)
 		endif
+		var connection_seen = false
+		var command_started = false
+		var alias_seen = false
+		var expecting_value = false
+		var expecting_alias_name = false
 		for value in completed
-			if value !~# '^+' | return [] | endif
+			if expecting_value
+				expecting_value = false
+				continue
+			endif
+			if expecting_alias_name
+				expecting_alias_name = false
+				alias_seen = true
+				continue
+			endif
+			const option_name = value =~# '^++'
+				? substitute(value[2 :], '=.*$', '', '') : ''
+			const is_option = index(['cwd', 'loclist', 'errorformat', 'alias'], option_name) >= 0
+			if is_option
+				if index(['cwd', 'errorformat'], option_name) >= 0 && stridx(value, '=') < 0
+					expecting_value = true
+				elseif option_name ==# 'alias'
+					expecting_alias_name = true
+				endif
+				continue
+			endif
+			if value ==# '++' || value ==# '--' | continue | endif
+			if !connection_seen
+				connection_seen = true
+			elseif !alias_seen
+				command_started = true
+				break
+			endif
 		endfor
+		if command_started | return [] | endif
 
 		var opts = ['cwd', 'loclist', 'errorformat', 'alias']
 		var specified = CmdLine
@@ -3774,7 +3811,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 			->filter((_, v) => index(specified, v) < 0)
 			->map((_, v) => index(['cwd', 'errorformat'], v) >= 0 ? $'++{v}=' : '++' .. v)
 
-		var suggestions = opts + keys(connections)
+		var suggestions = opts + (connection_seen ? [] : keys(connections))
 
 		if empty(ArgLead) | return suggestions | endif
 		return matchfuzzy(suggestions, ArgLead)

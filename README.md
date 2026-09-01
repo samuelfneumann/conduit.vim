@@ -136,6 +136,10 @@ diagnostic paths are resolved against the actual remote working directory, and
 quickfix jumps open the file through the exact Conduit profile that ran the
 task. Plain output lines that resolve to real remote files are also made
 jumpable, which makes commands such as `ls`, `find`, and `git ls-files` useful
+
+Run options may appear before or after `CONNECTION`; Conduit continues parsing
+recognized options until ordinary command text begins. Use `++` or `--` to run
+a remote command whose first token would otherwise be recognized as an option.
 directly from quickfix. Other output remains visible as non-jumpable quickfix
 text.
 
@@ -148,6 +152,11 @@ non-negative number, `+`, `*`, or `?`). It may also have either `errorformat` or
 `compiler`, but not both. Positional `$0`, `$1`, ... substitutions follow shell
 conventions, with `$0` naming the alias. Separate commands with `;`; `|` keeps
 its normal remote-shell pipeline meaning.
+
+Alias arguments are variadic, but a recognized run option ends the argument
+list. This makes `CONNECTION ++alias NAME ARGS... ++cwd=DIR` equivalent to
+`++cwd=DIR CONNECTION ++alias NAME ARGS...`. Use `++` or `--` after the alias
+arguments when the connection has not yet been supplied.
 
 When `++cwd` is omitted, Conduit uses the directory of the current remote
 buffer if it belongs to the selected connection. Otherwise, the task starts in

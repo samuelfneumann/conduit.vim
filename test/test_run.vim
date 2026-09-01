@@ -60,6 +60,19 @@ call assert_equal('myalias', space_parsed.errorformat)
 call assert_equal('dev', space_parsed.connection)
 call assert_equal('printf x | sed s/x/y/', space_parsed.command)
 
+call assert_equal(
+	\ loclist_parsed,
+	\ conduit#ParseConduitRunArgs('dev ++loclist ++cwd=/srv make', v:false),
+	\ )
+call assert_equal(
+	\ loclist_parsed,
+	\ conduit#ParseConduitRunArgs('++loclist dev ++cwd=/srv make', v:false),
+	\ )
+call assert_equal(
+	\ '++cwd=/remote arg',
+	\ conduit#ParseConduitRunArgs('dev -- ++cwd=/remote arg', v:false).command,
+	\ )
+
 let alias_after_connection = conduit#ParseConduitRunArgs(
 	\ 'dev ++alias launch_job one two\ words',
 	\ v:false,
@@ -77,6 +90,13 @@ call assert_equal(
 	\ alias_after_connection,
 	\ conduit#ParseConduitRunArgs('++alias launch_job one two\ words -- dev', v:false),
 	\ )
+let alias_options_after_args = conduit#ParseConduitRunArgs(
+	\ 'dev ++alias launch_job one two\ words ++cwd=/srv ++loclist',
+	\ v:false,
+	\ )
+call assert_equal('/srv', alias_options_after_args.cwd)
+call assert_equal(v:true, alias_options_after_args.loclist)
+call assert_equal(alias_after_connection.alias_args, alias_options_after_args.alias_args)
 
 let rerun = conduit#ParseConduitRunArgs('dev', v:true)
 call assert_equal(
@@ -128,6 +148,10 @@ endtry
 call assert_equal(
 	\ ['++cwd=', '++loclist', '++errorformat=', '++alias'],
 	\ conduit#ConduitCompl('', 'Conduit run ', strlen('Conduit run ') + 1),
+	\ )
+call assert_equal(
+	\ ['++cwd=', '++loclist', '++errorformat=', '++alias'],
+	\ conduit#ConduitCompl('', 'Conduit run testhost ', strlen('Conduit run testhost ') + 1),
 	\ )
 call assert_equal(
 	\ ['get', 'put', 'run', '*'],
