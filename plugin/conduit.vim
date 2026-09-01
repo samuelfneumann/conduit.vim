@@ -19,6 +19,7 @@ g:conduit_default_control_persist = get(g:, 'conduit_default_control_persist', "
 g:conduit_host2sshoptions = get(g:, 'conduit_host2sshoptions', {})
 g:conduit_run_auto_open_quickfix = get(g:, 'conduit_run_auto_open_quickfix', true)
 g:conduit_errorformat = get(g:, 'conduit_errorformat', {})
+g:conduit_run_alias = get(g:, 'conduit_run_alias', {})
 
 g:conduit_put_ops = []
 g:conduit_get_ops = []

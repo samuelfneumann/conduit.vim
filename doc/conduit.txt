@@ -32,7 +32,7 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 `_vim` to run the actual vim binary on the remote host.
 
 ==============================================================================
-2. `:Conduit` Command                                      *conduit-commands*
+3. `:Conduit` Command                                      *conduit-commands*
 
 :Conduit {subcommand} ...                                   *:Conduit*
         General command interface for Conduit operations.
@@ -107,6 +107,8 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         |conduit-forwarding|.
 
 :Conduit run [++cwd=DIR] [++loclist] [++errorformat=EFM] {connection-key} {command}
+:Conduit run {connection-key} ++alias {name} [args ...]
+:Conduit run ++alias {name} [args ...] [++|--] {connection-key}
                                                             *:Conduit-run*
         Run {command} through an existing Conduit SSH connection. Standard
         output and standard error are merged in order and appended live to a
@@ -131,14 +133,35 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
            the invoking window had before the run.
         3. Otherwise, EFM itself, taken as a literal 'errorformat' string.
 
-        Everything after {connection-key} is preserved as remote shell text.
-        Escape a pipeline bar for Ex command parsing:
+	Once ordinary command text begins, it is preserved as remote shell text.
+	Recognized run options may also follow {connection-key}; option parsing
+	continues until ordinary command text begins. Use `++` or `--` to terminate
+	option parsing explicitly. Escape a pipeline bar for Ex command parsing:
 >
             :Conduit run ++cwd=/srv/app dev make test
             :Conduit run dev pytest \| tee /tmp/test.log
             :Conduit run ++loclist dev make
             :Conduit run ++errorformat=gcc dev make
+            :Conduit run dev ++alias launch_job input.json
+            :Conduit run ++alias launch_job input.json -- dev
 <
+	Run aliases are read from |g:conduit_run_alias|. The ++/-- separator is
+	required when the connection follows the variadic alias arguments.
+	Alias arguments end at the next recognized run option, so options such as
+	++cwd and ++loclist may also follow the arguments.
+	The alias name also accepts the long-option `=` form: ++alias={name}.
+
+g:conduit_run_alias                              *g:conduit_run_alias*
+	A dictionary of remote run aliases. Each value is a dictionary with:
+	  alias     Command text. Separate commands with `;`; `|` remains a shell
+	            pipeline operator.
+	  nargs     A non-negative number, `+`, `*`, or `?`, as for :command-nargs.
+	  errorformat  Optional 'errorformat' used for this alias.
+	  compiler  Optional compiler plugin whose 'errorformat' is used.
+	Only one of errorformat and compiler may be present. `$0` expands to the alias
+	name and `$1`, `$2`, ... expand to shell-escaped invocation arguments.
+	`$HOST` expands to the hostname of the connection against which the
+	alias is run, and `$KEY` expands to its profile key.
         Relative filenames parsed from diagnostics are resolved against the
         actual remote working directory. Quickfix jumps use the full Conduit
         profile, including its identity, port, jump host, and ControlPath.
@@ -248,6 +271,7 @@ command and terminal that Conduit requires.
 :Conduit socket {connection-key}                            *:Conduit-socket*
         Show the ControlMaster socket path used for {connection-key}.
 
+==============================================================================
 3. Deprecated Commands                                     *conduit-deprecated*
 
 :ConduitOpen {host}                                         *:ConduitOpen*
@@ -461,6 +485,9 @@ or equivalently:
 This is translated to `ssh -J user1@host1 user2@host2` and applies to the
 entire Conduit session.
 
+==============================================================================
+6. Connection profile keys                              *conduit-profile-key*
+
 Conduit identifies each connection by a profile key derived from its host,
 port, and the effective SSH options used to open it (including any
 options set via |g:conduit_host2sshoptions|). Repeating `:Conduit open` for a
@@ -479,7 +506,7 @@ with `:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and
 `:Conduit stop`.
 
 ==============================================================================
-6. Notifications                                            *conduit-notifications*
+7. Notifications                                            *conduit-notifications*
 
 Conduit uses a built-in notifier (based on popup windows) to show progress for
 file transfers and status updates. If `+multi_byte` is enabled, it uses

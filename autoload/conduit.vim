@@ -2240,16 +2240,38 @@ def NextRunToken(raw: string, start: number): tuple<string, number>
 	return (token, pos)
 enddef
 
+def RunTokenStart(raw: string, token_end: number): number
+	var start = token_end
+	while start > 0
+		var candidate = start - 1
+		if raw[candidate] =~# '\s'
+			var slashes = 0
+			var before = candidate - 1
+			while before >= 0 && raw[before] ==# '\'
+				slashes += 1
+				before -= 1
+			endwhile
+			if slashes % 2 == 0 | break | endif
+		endif
+		start = candidate
+	endwhile
+	return start
+enddef
+
 # Parses the argument string of `:Conduit[!] run` into
-# {connection, command, cwd, loclist, errorformat}. With `bang`, `raw` is
+# {connection, command, cwd, loclist, errorformat}. Alias runs additionally
+# have {alias, alias_args}. With `bang`, `raw` is
 # just a connection key (reruns reuse the previous command/cwd/efm verbatim
-# and reject any trailing text); otherwise it is
-# `[++cwd=...] [++loclist] [++errorformat=...] connection command...`.
+# and reject any trailing text). On a fresh run, recognized options may occur
+# on either side of the connection until ordinary command text begins.
 export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 	var pos = 0
 	var cwd = ''
 	var loclist = false
 	var errorformat = ''
+	var alias = ''
+	var alias_args: list<string> = []
+	var connection = ''
 	var token: string
 	[token, pos] = NextRunToken(raw, pos)
 
@@ -2269,80 +2291,136 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 		return {connection: token, command: '', cwd: '', loclist: false, errorformat: ''}
 	endif
 
-	while token =~# '^+'
-		if token !~# '^++'
-			throw error.Error.InvalidConduitOption.Format(
-				$'option "{token}" is unknown',
-			)
-		endif
+	var collecting_alias_args = false
+	while !empty(token)
+		const token_end = pos
+		const token_start = RunTokenStart(raw, token_end)
 
-		const opt = token[2 :]
+		const opt = token =~# '^++' ? token[2 :] : ''
 		const eq_idx = stridx(opt, '=')
 		const has_eq = eq_idx >= 0
 		const name = has_eq ? opt[: eq_idx - 1] : opt
+		const recognized = index(['cwd', 'loclist', 'errorformat', 'alias'], name) >= 0
 
-		if name ==# 'cwd'
-			var value: string
-			if has_eq
-				value = opt[eq_idx + 1 :]
-			else
-				[value, pos] = NextRunToken(raw, pos)
-			endif
-			if !empty(cwd) || empty(value)
-				throw error.Error.InvalidConduitOption.Format(
-					'++cwd requires one non-empty value',
-				)
-			endif
-			cwd = value
-		elseif name ==# 'loclist'
-			if has_eq
-				throw error.Error.InvalidConduitOption.Format(
-					'++loclist does not take a value',
-				)
-			endif
-			if loclist
-				throw error.Error.InvalidConduitOption.Format(
-					'++loclist may only be given once',
-				)
-			endif
-			loclist = true
-		elseif name ==# 'errorformat'
-			var value: string
-			if has_eq
-				value = opt[eq_idx + 1 :]
-			else
-				[value, pos] = NextRunToken(raw, pos)
-			endif
-			if !empty(errorformat) || empty(value)
-				throw error.Error.InvalidConduitOption.Format(
-					'++errorformat requires one non-empty value',
-				)
-			endif
-			errorformat = value
-		else
-			throw error.Error.InvalidConduitOption.Format(
-				$'option "{token}" is unknown',
-			)
+		if collecting_alias_args && !recognized && token !=# '++' && token !=# '--'
+			alias_args->add(token)
+			[token, pos] = NextRunToken(raw, pos)
+			continue
 		endif
-		[token, pos] = NextRunToken(raw, pos)
+
+		if token ==# '++' || token ==# '--'
+			if collecting_alias_args && empty(connection)
+				[connection, pos] = NextRunToken(raw, pos)
+				if empty(connection)
+					throw error.Error.MissingHost.Format('missing connection key')
+				endif
+				[token, pos] = NextRunToken(raw, pos)
+				continue
+			elseif collecting_alias_args
+				# With a known connection, the terminator makes all remaining
+				# tokens literal alias arguments, including recognized options.
+				[token, pos] = NextRunToken(raw, pos)
+				while !empty(token)
+					alias_args->add(token)
+					[token, pos] = NextRunToken(raw, pos)
+				endwhile
+				break
+			endif
+
+			# Outside alias mode, a terminator makes the next positional token
+			# the connection (if needed), then preserves the command verbatim.
+			if empty(connection)
+				[connection, pos] = NextRunToken(raw, pos)
+				if empty(connection)
+					throw error.Error.MissingHost.Format('missing connection key')
+				endif
+			endif
+			const command = trim(strpart(raw, pos))
+			if empty(command)
+				throw error.Error.InvalidExecuteCommand.Format('missing remote command')
+			endif
+			return {connection: connection, command: command, cwd: cwd,
+				loclist: loclist, errorformat: errorformat}
+		endif
+
+		if recognized
+			collecting_alias_args = false
+			if name ==# 'cwd'
+				var value: string
+				if has_eq
+					value = opt[eq_idx + 1 :]
+				else
+					[value, pos] = NextRunToken(raw, pos)
+				endif
+				if !empty(cwd) || empty(value)
+					throw error.Error.InvalidConduitOption.Format(
+						'++cwd requires one non-empty value')
+				endif
+				cwd = value
+			elseif name ==# 'loclist'
+				if has_eq || loclist
+					throw error.Error.InvalidConduitOption.Format(has_eq
+						? '++loclist does not take a value'
+						: '++loclist may only be given once')
+				endif
+				loclist = true
+			elseif name ==# 'errorformat'
+				var value: string
+				if has_eq
+					value = opt[eq_idx + 1 :]
+				else
+					[value, pos] = NextRunToken(raw, pos)
+				endif
+				if !empty(errorformat) || empty(value)
+					throw error.Error.InvalidConduitOption.Format(
+						'++errorformat requires one non-empty value')
+				endif
+				errorformat = value
+			else
+				if !empty(alias)
+					throw error.Error.InvalidConduitOption.Format(
+						'++alias must be given once followed by an alias name')
+				endif
+				if has_eq
+					alias = opt[eq_idx + 1 :]
+				else
+					[alias, pos] = NextRunToken(raw, pos)
+				endif
+				if empty(alias)
+					throw error.Error.InvalidConduitOption.Format(
+						'++alias requires a non-empty alias name')
+				endif
+				collecting_alias_args = true
+			endif
+			[token, pos] = NextRunToken(raw, pos)
+			continue
+		endif
+
+		if empty(connection)
+			if token =~# '^+'
+				throw error.Error.InvalidConduitOption.Format($'option "{token}" is unknown')
+			endif
+			connection = token
+			[token, pos] = NextRunToken(raw, pos)
+			continue
+		endif
+
+		if !empty(alias)
+			throw error.Error.InvalidConduitCommand.Format(
+				$'unexpected argument "{token}" after alias options')
+		endif
+		return {connection: connection, command: trim(strpart(raw, token_start)),
+			cwd: cwd, loclist: loclist, errorformat: errorformat}
 	endwhile
 
-	if empty(token)
+	if empty(connection)
 		throw error.Error.MissingHost.Format('missing connection key')
 	endif
-
-	const command = trim(strpart(raw, pos))
-	if empty(command)
+	if empty(alias)
 		throw error.Error.InvalidExecuteCommand.Format('missing remote command')
 	endif
-
-	return {
-		connection: token,
-		command: command,
-		cwd: cwd,
-		loclist: loclist,
-		errorformat: errorformat,
-	}
+	return {connection: connection, command: '', cwd: cwd, loclist: loclist,
+		errorformat: errorformat, alias: alias, alias_args: alias_args}
 enddef
 
 # Default cwd for a run with no explicit ++cwd: the directory of the
@@ -2756,6 +2834,117 @@ def ResolveRunErrorFormat(EFM: string): string
 	return efm
 enddef
 
+def ResolveCompilerErrorFormat(name: string): string
+	if empty(globpath(&runtimepath, 'compiler/' .. name .. '.vim'))
+		throw error.Error.InvalidExecuteCommand.Format(
+			$'compiler "{name}" does not exist',
+		)
+	endif
+
+	const original_compiler = get(b:, 'current_compiler', '')
+	const original_efm = &l:errorformat
+	try
+		execute 'compiler ' .. name
+		return &l:errorformat
+	finally
+		if empty(original_compiler)
+			unlet! b:current_compiler
+		else
+			b:current_compiler = original_compiler
+		endif
+		&l:errorformat = original_efm
+	endtry
+	return ''
+enddef
+
+def AliasArgumentCountValid(nargs: any, count: number): bool
+	if type(nargs) == v:t_number
+		return nargs >= 0 && count == nargs
+	endif
+	if type(nargs) != v:t_string
+		return false
+	endif
+	return nargs ==# '*' || (nargs ==# '+' && count >= 1)
+		|| (nargs ==# '?' && count <= 1)
+enddef
+
+# Validates and expands one g:conduit_run_alias entry. Positional arguments are
+# shell-escaped before textual substitution so one argument stays one remote
+# shell word. Braced (${1}) and unbraced ($1) positional forms are supported.
+# The special $HOST/${HOST} argument expands to the hostname of the connection,
+# and $KEY/${KEY} expands to the profile key of the connection
+def ResolveRunAlias(
+	name: string, args: list<string>, connection: Connection,
+): tuple<string, string, bool>
+	if !has_key(g:conduit_run_alias, name)
+		throw error.Error.InvalidExecuteCommand.Format(
+			$'run alias "{name}" does not exist',
+		)
+	endif
+	const spec = g:conduit_run_alias[name]
+	if type(spec) != v:t_dict || type(get(spec, 'alias', 0)) != v:t_string
+			|| !has_key(spec, 'nargs')
+		throw error.Error.InvalidExecuteCommand.Format(
+			$'run alias "{name}" requires string alias and nargs entries',
+		)
+	endif
+	if !AliasArgumentCountValid(spec.nargs, len(args))
+		throw error.Error.InvalidNumberOfArguments.Format(
+			$'run alias "{name}" expects {string(spec.nargs)} arguments, got {len(args)}',
+		)
+	endif
+	if has_key(spec, 'errorformat') && has_key(spec, 'compiler')
+		throw error.Error.InvalidExecuteCommand.Format(
+			$'run alias "{name}" cannot specify both errorformat and compiler',
+		)
+	endif
+	if has_key(spec, 'errorformat') && type(spec.errorformat) != v:t_string
+		throw error.Error.InvalidExecuteCommand.Format(
+			$'run alias "{name}" errorformat must be a string',
+		)
+	endif
+	if has_key(spec, 'compiler') && type(spec.compiler) != v:t_string
+		throw error.Error.InvalidExecuteCommand.Format(
+			$'run alias "{name}" compiler must be a string',
+		)
+	endif
+
+	var command = spec.alias
+
+	# Substitute $HOST or ${HOST} with connection host
+	const host = connection.host
+	command = substitute(command, '\V${HOST}', escape(host, '\&'), 'g')
+	command = substitute(command, '\V$HOST', escape(host, '\&'), 'g')
+
+	# Substitute $KEY or ${KEY} with connection profile key
+	const profile_key = connection.profile_key
+	command = substitute(command, '\V${KEY}', escape(host, '\&'), 'g')
+	command = substitute(command, '\V$KEY', escape(host, '\&'), 'g')
+
+	const values = [name]->extend(args)
+	# Descending replacement prevents $1 from consuming the prefix of $10.
+	for idx in reverse(range(len(values)))
+		const value = shellescape(values[idx])
+		command = substitute(command, '\V${' .. idx .. '}', escape(value, '\&'), 'g')
+		command = substitute(command, '\V$' .. idx .. '\m\(\d\)\@!', escape(value, '\&'), 'g')
+	endfor
+
+	# Like unset positional parameters in a shell, references beyond the
+	# supplied argument list expand to the empty string.
+	command = substitute(command, '\$\%({\d\+}\|\d\+\)', '', 'g')
+
+	# Expand errorformat
+	var efm = ''
+	const has_efm = has_key(spec, 'errorformat') || has_key(spec, 'compiler')
+	if has_key(spec, 'errorformat')
+		efm = spec.errorformat
+	elseif has_key(spec, 'compiler')
+		efm = ResolveCompilerErrorFormat(spec.compiler)
+	endif
+
+	return (command, efm, has_efm)
+enddef
+
 # Entry point for `:Conduit[!] run`: parses `raw`, resolves the target
 # connection, and either replays the last run for that connection (bang,
 # refusing if a matching task is already in flight) or starts a fresh one.
@@ -2804,11 +2993,26 @@ export def ConduitRunCmd(bang: bool, raw: string)
 	endif
 
 	const cwd = empty(parsed.cwd) ? CurrentRemoteCwd(conn) : parsed.cwd
-	const efm = empty(parsed.errorformat)
+	var command = parsed.command
+	var alias_efm = ''
+	var has_alias_efm = false
+	if has_key(parsed, 'alias')
+		try
+			[command, alias_efm, has_alias_efm] = ResolveRunAlias(
+				parsed.alias, parsed.alias_args, conn,
+			)
+		catch
+			Warn(v:exception)
+			return
+		endtry
+	endif
+	const efm = has_alias_efm
+		? alias_efm
+		: empty(parsed.errorformat)
 		? &errorformat
 		: ResolveRunErrorFormat(parsed.errorformat)
 	StartRunTask(conn, RunSpec.new(
-		parsed.command,
+		command,
 		cwd,
 		efm,
 		parsed.loclist,
@@ -3571,15 +3775,69 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 	elseif cmd ==# 'run'
 		var run_parts = len(parts) > 2 ? parts[2 : ] : []
 		const ends_in_space = current_cmd =~# '\s$'
+		const current_run_token = !ends_in_space && !empty(run_parts)
+			? run_parts[-1] : ''
+		if current_run_token =~# '^++alias='
+			const aliases = sort(keys(g:conduit_run_alias))
+			const alias_lead = current_run_token[strlen('++alias=') :]
+			return mapnew(
+				empty(alias_lead) ? aliases : matchfuzzy(aliases, alias_lead),
+				(_, value) => '++alias=' .. value,
+			)
+		endif
+		const alias_idx = index(run_parts, '++alias')
+		const completing_alias = alias_idx >= 0
+			&& ((ends_in_space && alias_idx == len(run_parts) - 1)
+				|| (!ends_in_space && alias_idx == len(run_parts) - 2))
+		if completing_alias
+			const aliases = sort(keys(g:conduit_run_alias))
+			return empty(ArgLead) ? aliases : matchfuzzy(aliases, ArgLead)
+		endif
 		var completed = copy(run_parts)
 		if !ends_in_space && !empty(completed)
 			completed->remove(-1)
 		endif
+		var connection_seen = false
+		var command_started = false
+		var alias_seen = false
+		var expecting_value = false
+		var expecting_alias_name = false
 		for value in completed
-			if value !~# '^+' | return [] | endif
+			if expecting_value
+				expecting_value = false
+				continue
+			endif
+			if expecting_alias_name
+				expecting_alias_name = false
+				alias_seen = true
+				continue
+			endif
+			const option_name = value =~# '^++'
+				? substitute(value[2 :], '=.*$', '', '') : ''
+			const is_option = index(['cwd', 'loclist', 'errorformat', 'alias'], option_name) >= 0
+			if is_option
+				if index(['cwd', 'errorformat'], option_name) >= 0 && stridx(value, '=') < 0
+					expecting_value = true
+				elseif option_name ==# 'alias'
+					if stridx(value, '=') >= 0
+						alias_seen = true
+					else
+						expecting_alias_name = true
+					endif
+				endif
+				continue
+			endif
+			if value ==# '++' || value ==# '--' | continue | endif
+			if !connection_seen
+				connection_seen = true
+			elseif !alias_seen
+				command_started = true
+				break
+			endif
 		endfor
+		if command_started | return [] | endif
 
-		var opts = ['cwd', 'loclist', 'errorformat']
+		var opts = ['cwd', 'loclist', 'errorformat', 'alias']
 		var specified = CmdLine
 			->split()
 			->filter((_, v) => v =~# '^+' && !empty(v))
@@ -3588,9 +3846,9 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		# Only grab non-specified suggestions, and format as `++OPT=`
 		opts = opts
 			->filter((_, v) => index(specified, v) < 0)
-			->map((_, v) => index(['cwd', 'errorformat'], v) >= 0 ? $'++{v}=' : '++' .. v)
+			->map((_, v) => index(['cwd', 'errorformat', 'alias'], v) >= 0 ? $'++{v}=' : '++' .. v)
 
-		var suggestions = opts + keys(connections)
+		var suggestions = opts + (connection_seen ? [] : keys(connections))
 
 		if empty(ArgLead) | return suggestions | endif
 		return matchfuzzy(suggestions, ArgLead)

@@ -60,6 +60,48 @@ call assert_equal('myalias', space_parsed.errorformat)
 call assert_equal('dev', space_parsed.connection)
 call assert_equal('printf x | sed s/x/y/', space_parsed.command)
 
+call assert_equal(
+	\ loclist_parsed,
+	\ conduit#ParseConduitRunArgs('dev ++loclist ++cwd=/srv make', v:false),
+	\ )
+call assert_equal(
+	\ loclist_parsed,
+	\ conduit#ParseConduitRunArgs('++loclist dev ++cwd=/srv make', v:false),
+	\ )
+call assert_equal(
+	\ '++cwd=/remote arg',
+	\ conduit#ParseConduitRunArgs('dev -- ++cwd=/remote arg', v:false).command,
+	\ )
+
+let alias_after_connection = conduit#ParseConduitRunArgs(
+	\ 'dev ++alias launch_job one two\ words',
+	\ v:false,
+	\ )
+call assert_equal('dev', alias_after_connection.connection)
+call assert_equal('launch_job', alias_after_connection.alias)
+call assert_equal(['one', 'two words'], alias_after_connection.alias_args)
+call assert_equal(
+	\ alias_after_connection,
+	\ conduit#ParseConduitRunArgs('dev ++alias=launch_job one two\ words', v:false),
+	\ )
+
+let alias_before_connection = conduit#ParseConduitRunArgs(
+	\ '++alias launch_job one two\ words ++ dev',
+	\ v:false,
+	\ )
+call assert_equal(alias_after_connection, alias_before_connection)
+call assert_equal(
+	\ alias_after_connection,
+	\ conduit#ParseConduitRunArgs('++alias launch_job one two\ words -- dev', v:false),
+	\ )
+let alias_options_after_args = conduit#ParseConduitRunArgs(
+	\ 'dev ++alias launch_job one two\ words ++cwd=/srv ++loclist',
+	\ v:false,
+	\ )
+call assert_equal('/srv', alias_options_after_args.cwd)
+call assert_equal(v:true, alias_options_after_args.loclist)
+call assert_equal(alias_after_connection.alias_args, alias_options_after_args.alias_args)
+
 let rerun = conduit#ParseConduitRunArgs('dev', v:true)
 call assert_equal(
 	\ {'connection': 'dev', 'command': '', 'cwd': '', 'loclist': v:false, 'errorformat': ''},
@@ -108,8 +150,12 @@ catch
 endtry
 
 call assert_equal(
-	\ ['++cwd=', '++loclist', '++errorformat='],
+	\ ['++cwd=', '++loclist', '++errorformat=', '++alias='],
 	\ conduit#ConduitCompl('', 'Conduit run ', strlen('Conduit run ') + 1),
+	\ )
+call assert_equal(
+	\ ['++cwd=', '++loclist', '++errorformat=', '++alias='],
+	\ conduit#ConduitCompl('', 'Conduit run testhost ', strlen('Conduit run testhost ') + 1),
 	\ )
 call assert_equal(
 	\ ['get', 'put', 'run', '*'],
@@ -118,6 +164,83 @@ call assert_equal(
 
 Conduit deploy testhost
 sleep 500m
+
+let g:conduit_run_alias = {
+	\ 'launch_job': {
+	\   'alias': 'echo $0; echo $1:4:oops; echo DONE:$2',
+	\   'nargs': 2,
+	\   'errorformat': '%f:%l:%m',
+	\ },
+	\ 'optional': {'alias': 'echo OPTIONAL:${1}', 'nargs': '?'},
+	\ 'many': {'alias': 'echo MANY:$1:$2', 'nargs': '*'},
+	\ 'pipeline': {'alias': 'printf x | sed s/x/y/', 'nargs': 0},
+	\ 'compiled': {
+	\   'alias': 'echo FIXTURE:$1:8:bad',
+	\   'nargs': '+',
+	\   'compiler': 'conduittest',
+	\ },
+	\ }
+call assert_equal(
+	\ ['compiled', 'launch_job', 'many', 'optional', 'pipeline'],
+	\ conduit#ConduitCompl('', 'Conduit run ++alias ', strlen('Conduit run ++alias ') + 1),
+	\ )
+call assert_equal(
+	\ ['launch_job'],
+	\ conduit#ConduitCompl(
+	\   'lau',
+	\   'Conduit run testhost ++alias lau',
+	\   strlen('Conduit run testhost ++alias lau') + 1,
+	\ ),
+	\ )
+call assert_equal(
+	\ ['++alias=launch_job'],
+	\ conduit#ConduitCompl(
+	\   '++alias=lau',
+	\   'Conduit run testhost ++alias=lau',
+	\   strlen('Conduit run testhost ++alias=lau') + 1,
+	\ ),
+	\ )
+Conduit run testhost ++alias launch_job alias.c two\ words
+sleep 500m
+let run_alias_qf = getqflist({'items': 0, 'context': 0})
+call assert_equal(0, run_alias_qf.context.exit_code)
+call assert_equal('launch_job', run_alias_qf.items[0].text)
+call assert_equal('alias.c', run_alias_qf.items[1].module)
+call assert_equal(4, run_alias_qf.items[1].lnum)
+call assert_equal('DONE:two words', run_alias_qf.items[-1].text)
+
+Conduit run testhost ++alias optional
+sleep 500m
+call assert_equal('OPTIONAL:', getqflist({'items': 0}).items[-1].text)
+Conduit run ++alias many left right -- testhost
+sleep 500m
+call assert_equal('MANY:left:right', getqflist({'items': 0}).items[-1].text)
+Conduit run testhost ++alias pipeline
+sleep 500m
+call assert_equal('y', getqflist({'items': 0}).items[-1].text)
+
+Conduit run ++alias compiled compiled.c -- testhost
+sleep 500m
+let compiled_alias_qf = getqflist({'items': 0, 'context': 0})
+call assert_equal(1, compiled_alias_qf.items[0].valid)
+call assert_equal('compiled.c', compiled_alias_qf.items[0].module)
+call assert_equal(8, compiled_alias_qf.items[0].lnum)
+
+messages clear
+Conduit run testhost ++alias launch_job only-one
+call assert_match('C007:.*expects 2 arguments, got 1', execute('messages'))
+messages clear
+Conduit run testhost ++alias missing
+call assert_match('C004:.*alias "missing" does not exist', execute('messages'))
+messages clear
+let g:conduit_run_alias.bad_efm = {
+	\ 'alias': 'echo bad', 'nargs': 0,
+	\ 'errorformat': '%m', 'compiler': 'conduittest',
+	\ }
+Conduit run testhost ++alias bad_efm
+call assert_match('C004:.*cannot specify both errorformat and compiler', execute('messages'))
+messages clear
+
 Conduit run ++cwd=/tmp testhost echo main.c:3:2: error: boom
 sleep 500m
 

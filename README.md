@@ -89,6 +89,9 @@ Then, read the docs:
 " Override 'errorformat' for this run only
 :Conduit run ++errorformat=gcc user@example.com make test
 
+" Run a configured alias (the connection may precede ++alias instead)
+:Conduit run ++alias launch_job input.json ++ user@example.com
+
 " Pipelines use Vim's escaped bar syntax
 :Conduit run user@example.com pytest \| tee /tmp/test.log
 
@@ -133,8 +136,30 @@ diagnostic paths are resolved against the actual remote working directory, and
 quickfix jumps open the file through the exact Conduit profile that ran the
 task. Plain output lines that resolve to real remote files are also made
 jumpable, which makes commands such as `ls`, `find`, and `git ls-files` useful
+
+Run options may appear before or after `CONNECTION`; Conduit continues parsing
+recognized options until ordinary command text begins. Use `++` or `--` to run
+a remote command whose first token would otherwise be recognized as an option.
 directly from quickfix. Other output remains visible as non-jumpable quickfix
 text.
+
+Run aliases are configured in `g:conduit_run_alias` and invoked with
+`:Conduit run CONNECTION ++alias NAME ARGS...`. Because alias arguments are
+variadic, putting the connection last requires an explicit option terminator:
+`:Conduit run ++alias NAME ARGS... ++ CONNECTION` (or `-- CONNECTION`). Each
+alias entry has an `alias` command string and a Vim-style `nargs` value (a
+non-negative number, `+`, `*`, or `?`). It may also have either `errorformat` or
+`compiler`, but not both. Positional `$0`, `$1`, ... substitutions follow shell
+conventions, with `$0` naming the alias. Separate commands with `;`; `|` keeps
+its normal remote-shell pipeline meaning.
+
+As with other value-taking long options, the alias name may be attached with
+`=`: `:Conduit run CONNECTION ++alias=NAME ARGS...`.
+
+Alias arguments are variadic, but a recognized run option ends the argument
+list. This makes `CONNECTION ++alias NAME ARGS... ++cwd=DIR` equivalent to
+`++cwd=DIR CONNECTION ++alias NAME ARGS...`. Use `++` or `--` after the alias
+arguments when the connection has not yet been supplied.
 
 When `++cwd` is omitted, Conduit uses the directory of the current remote
 buffer if it belongs to the selected connection. Otherwise, the task starts in
@@ -199,7 +224,8 @@ multiplexes through the existing SSH ControlMaster (no re-authentication, even
 under MFA) and attaches another terminal to it. Only when the effective SSH
 options actually differ — e.g. a different jump host — does Conduit track it
 as a separate profile, keyed like `user@host:22-1a2b3c4d5e6f`. Use that key for
-`:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, and `:Conduit stop`.
+`:Conduit exit`, `:Conduit disconnect`, `:Conduit source`, `:Conduit stop`,
+etc.
 
 #### Forwarding flags (`+L`/`+R`/`+D`/`+w`)
 
