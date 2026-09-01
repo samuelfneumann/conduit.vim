@@ -153,6 +153,9 @@ non-negative number, `+`, `*`, or `?`). It may also have either `errorformat` or
 conventions, with `$0` naming the alias. Separate commands with `;`; `|` keeps
 its normal remote-shell pipeline meaning.
 
+As with other value-taking long options, the alias name may be attached with
+`=`: `:Conduit run CONNECTION ++alias=NAME ARGS...`.
+
 Alias arguments are variadic, but a recognized run option ends the argument
 list. This makes `CONNECTION ++alias NAME ARGS... ++cwd=DIR` equivalent to
 `++cwd=DIR CONNECTION ++alias NAME ARGS...`. Use `++` or `--` after the alias

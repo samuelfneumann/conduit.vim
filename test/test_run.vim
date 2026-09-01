@@ -80,6 +80,10 @@ let alias_after_connection = conduit#ParseConduitRunArgs(
 call assert_equal('dev', alias_after_connection.connection)
 call assert_equal('launch_job', alias_after_connection.alias)
 call assert_equal(['one', 'two words'], alias_after_connection.alias_args)
+call assert_equal(
+	\ alias_after_connection,
+	\ conduit#ParseConduitRunArgs('dev ++alias=launch_job one two\ words', v:false),
+	\ )
 
 let alias_before_connection = conduit#ParseConduitRunArgs(
 	\ '++alias launch_job one two\ words ++ dev',
@@ -146,11 +150,11 @@ catch
 endtry
 
 call assert_equal(
-	\ ['++cwd=', '++loclist', '++errorformat=', '++alias'],
+	\ ['++cwd=', '++loclist', '++errorformat=', '++alias='],
 	\ conduit#ConduitCompl('', 'Conduit run ', strlen('Conduit run ') + 1),
 	\ )
 call assert_equal(
-	\ ['++cwd=', '++loclist', '++errorformat=', '++alias'],
+	\ ['++cwd=', '++loclist', '++errorformat=', '++alias='],
 	\ conduit#ConduitCompl('', 'Conduit run testhost ', strlen('Conduit run testhost ') + 1),
 	\ )
 call assert_equal(
@@ -186,6 +190,14 @@ call assert_equal(
 	\   'lau',
 	\   'Conduit run testhost ++alias lau',
 	\   strlen('Conduit run testhost ++alias lau') + 1,
+	\ ),
+	\ )
+call assert_equal(
+	\ ['++alias=launch_job'],
+	\ conduit#ConduitCompl(
+	\   '++alias=lau',
+	\   'Conduit run testhost ++alias=lau',
+	\   strlen('Conduit run testhost ++alias=lau') + 1,
 	\ ),
 	\ )
 Conduit run testhost ++alias launch_job alias.c two\ words

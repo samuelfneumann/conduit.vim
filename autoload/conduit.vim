@@ -2377,11 +2377,15 @@ export def ParseConduitRunArgs(raw: string, bang: bool): dict<any>
 				endif
 				errorformat = value
 			else
-				if has_eq || !empty(alias)
+				if !empty(alias)
 					throw error.Error.InvalidConduitOption.Format(
 						'++alias must be given once followed by an alias name')
 				endif
-				[alias, pos] = NextRunToken(raw, pos)
+				if has_eq
+					alias = opt[eq_idx + 1 :]
+				else
+					[alias, pos] = NextRunToken(raw, pos)
+				endif
 				if empty(alias)
 					throw error.Error.InvalidConduitOption.Format(
 						'++alias requires a non-empty alias name')
@@ -3752,6 +3756,16 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 	elseif cmd ==# 'run'
 		var run_parts = len(parts) > 2 ? parts[2 : ] : []
 		const ends_in_space = current_cmd =~# '\s$'
+		const current_run_token = !ends_in_space && !empty(run_parts)
+			? run_parts[-1] : ''
+		if current_run_token =~# '^++alias='
+			const aliases = sort(keys(g:conduit_run_alias))
+			const alias_lead = current_run_token[strlen('++alias=') :]
+			return mapnew(
+				empty(alias_lead) ? aliases : matchfuzzy(aliases, alias_lead),
+				(_, value) => '++alias=' .. value,
+			)
+		endif
 		const alias_idx = index(run_parts, '++alias')
 		const completing_alias = alias_idx >= 0
 			&& ((ends_in_space && alias_idx == len(run_parts) - 1)
@@ -3786,7 +3800,11 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 				if index(['cwd', 'errorformat'], option_name) >= 0 && stridx(value, '=') < 0
 					expecting_value = true
 				elseif option_name ==# 'alias'
-					expecting_alias_name = true
+					if stridx(value, '=') >= 0
+						alias_seen = true
+					else
+						expecting_alias_name = true
+					endif
 				endif
 				continue
 			endif
@@ -3809,7 +3827,7 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		# Only grab non-specified suggestions, and format as `++OPT=`
 		opts = opts
 			->filter((_, v) => index(specified, v) < 0)
-			->map((_, v) => index(['cwd', 'errorformat'], v) >= 0 ? $'++{v}=' : '++' .. v)
+			->map((_, v) => index(['cwd', 'errorformat', 'alias'], v) >= 0 ? $'++{v}=' : '++' .. v)
 
 		var suggestions = opts + (connection_seen ? [] : keys(connections))
 

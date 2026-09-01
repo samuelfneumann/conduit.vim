@@ -149,6 +149,7 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 	required when the connection follows the variadic alias arguments.
 	Alias arguments end at the next recognized run option, so options such as
 	++cwd and ++loclist may also follow the arguments.
+	The alias name also accepts the long-option `=` form: ++alias={name}.
 
 g:conduit_run_alias                              *g:conduit_run_alias*
 	A dictionary of remote run aliases. Each value is a dictionary with:
