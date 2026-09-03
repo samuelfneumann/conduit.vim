@@ -191,6 +191,7 @@ The `lvim` function is injected into your remote shell automatically.
 $ lvim file.txt           # Opens in a horizontal split (default)
 $ lvim vsplit file.txt    # Opens in a vertical split
 $ lvim tabe file.txt      # Opens in a new tab
+$ lvim open report.pdf    # Opens in the local system default application
 
 # Bulk operations
 $ lvim *.py               # Opens all matching files locally
@@ -203,6 +204,9 @@ $ lvim put script.sh      # "Send":  Local -> Remote CWD
 ```
 
 By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the commands above work just as well by replacing `lvim` with `vim`. You can disable this by setting `g:conduit_overwrite_vim = 0`.
+
+`lvim open` downloads one remote file to a temporary local file before opening
+it. Conduit removes that temporary file when Vim exits.
 
 ### SSH Options
 
