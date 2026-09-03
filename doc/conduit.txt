@@ -435,6 +435,7 @@ Available {op}s are:
     - tab vsp
     - arga
     - argadd
+    - open
 
 {op}s can also be modifiers:
     - tab
@@ -467,6 +468,9 @@ File Transfer Operations:
 - get {remote_file} [{local_file}]: Download remote {remote_file} to local {local_file}. If `{local_file}` is omitted, Conduit uses the local current directory.
 - mget {pat}: Download remote files matching {pat}. If `{pat}` is not quoted, it will expand on the server and each individual file will be downloaded.
 - mput {pat}: Upload local files matching {pat}. If no destination is provided, Conduit uses the remote shell's current directory. `{pat}` must be quoted, otherwise it will be expanded before by the shell before Conduit can access it.
+- open {remote_file}: Download one remote file to a temporary local file and
+  open it in the local system default application. Conduit removes the
+  temporary file when Vim exits.
 
 If no operation is provided, |g:conduit_default_split| is used.
 

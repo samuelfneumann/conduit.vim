@@ -65,7 +65,7 @@ const open_file_ops = [
 ]
 
 # All supported `lvim` ops
-const all_ops = ["put", "get", "mget", "mput"]->extend(open_file_ops)->extend(modifiers)
+const all_ops = ["put", "get", "mget", "mput", "open"]->extend(open_file_ops)->extend(modifiers)
 
 # ── Classes & Core Types ─────────────────────────────────────────────────────
 abstract class ConduitOption
@@ -1091,7 +1091,14 @@ def OnLine(conn: Connection, line: string)
 	var [ops, paths] = ParseOpsAndPaths(op_path)
 	if empty(paths) | return | endif
 
-	if len(ops) == 1 && ops[0] == "get"
+	if len(ops) == 1 && ops[0] == "open"
+		if len(paths) != 1
+			throw error.Error.InvalidNumberOfArguments.Format(
+				$"'open' expects 1 argument, got {len(paths)}"
+			)
+		endif
+		OpenWithDefaultProgram(conn, paths[0])
+	elseif len(ops) == 1 && ops[0] == "get"
 		if len(paths) == 1 || empty(paths[1])
 			RsyncFile(conn, true, paths[0], getcwd())
 		elseif len(paths) == 2
@@ -1199,6 +1206,47 @@ def OnLine(conn: Connection, line: string)
 enddef
 
 # ── Remote File Operations ───────────────────────────────────────────────────
+
+# Temporary downloads opened by a desktop application. Desktop openers usually
+# detach as soon as they hand a file to the application, so keeping these files
+# until Vim exits avoids deleting one while its application is still reading it.
+var system_open_files: list<string> = []
+
+def SystemOpenCommand(path: string): list<string>
+	if has('macunix')
+		return ['open', path]
+	elseif has('win32') || has('win64')
+		return ['cmd.exe', '/c', 'start', '', path]
+	endif
+	return ['xdg-open', path]
+enddef
+
+def OpenWithDefaultProgram(conn: Connection, remote_path: string)
+	const extension = fnamemodify(remote_path, ':e')
+	const local_file = tempname() .. (empty(extension) ? '' : '.' .. extension)
+
+	RsyncFile(conn, true, remote_path, local_file, () => {
+		try
+			const opener = job_start(SystemOpenCommand(local_file))
+			if job_status(opener) !=# 'run'
+				delete(local_file)
+				Warn($'Could not open {remote_path} with the system default application')
+				return
+			endif
+			system_open_files->add(local_file)
+		catch
+			delete(local_file)
+			Warn($'Could not open {remote_path} with the system default application')
+		endtry
+	})
+enddef
+
+export def CleanupSystemOpenFiles()
+	for file in system_open_files
+		delete(file)
+	endfor
+	system_open_files = []
+enddef
 
 # Returns the (lazily created) buffer backing `remote_path` on `conn`, keyed
 # by connection profile + path so the same remote file always reuses one
@@ -1532,7 +1580,16 @@ def GetLocalPathForNotification(path: string, _basename: string): string
 	return './' .. fnamemodify(path, ':.') .. basename
 enddef
 
-def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<string>, notif_suffix: string, local_file: string, remote_file: string)
+def StartTransferJob(
+	conn: Connection,
+	get: bool,
+	op: string,
+	scp_cmd: list<string>,
+	notif_suffix: string,
+	local_file: string,
+	remote_file: string,
+	OnSuccess: func(): void = null_function,
+)
 
 	if g:conduit_verbose && !empty(scp_cmd) | echom $"Conduit(sh/{op}):" scp_cmd->join(' ') | endif
 
@@ -1597,6 +1654,7 @@ def StartTransferJob(conn: Connection, get: bool, op: string, scp_cmd: list<stri
 					{subprefix: '[‹✓› success]'},
 				)
 				notifier.Dismiss(notif, GetSuccessTimeout())
+				if OnSuccess != null | OnSuccess() | endif
 			else
 				notifier.Modify(
 					notif,
@@ -1695,8 +1753,14 @@ def BuildPutCommand(
 	return put_cmd
 enddef
 
-def RsyncFile(conn: Connection, get: bool, path: string, target_path: string)
-	RsyncFiles(conn, get, [path], target_path)
+def RsyncFile(
+	conn: Connection,
+	get: bool,
+	path: string,
+	target_path: string,
+	OnSuccess: func(): void = null_function,
+)
+	RsyncFiles(conn, get, [path], target_path, OnSuccess)
 enddef
 
 def Zip<T>(l1: list<T>, l2: list<T>): list<tuple<T, T>>
@@ -1707,7 +1771,13 @@ def Zip<T>(l1: list<T>, l2: list<T>): list<tuple<T, T>>
 	return mapnew(range(len(l1)), (_, i) => (l1[i], l2[i]))
 enddef
 
-def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: string)
+def RsyncFiles(
+	conn: Connection,
+	get: bool,
+	paths: list<string>,
+	target_path: string,
+	OnSuccess: func(): void = null_function,
+)
 	if empty(paths)
 		return
 	endif
@@ -1756,6 +1826,7 @@ def RsyncFiles(conn: Connection, get: bool, paths: list<string>, target_path: st
 		notif_suffix,
 		get ? target_path : paths->join(", "),
 		get ? paths->join(", ") : target_path,
+		OnSuccess,
 	)
 enddef
 
