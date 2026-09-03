@@ -85,7 +85,10 @@ command! -bar -nargs=+ ConduitStopPut {
 # ── Lifecycle & Integration ──────────────────────────────────────────────────
 augroup ConduitOpen
     autocmd!
-    autocmd VimLeave * conduit.MaybeCleanup(conduit.Connection.null_connection, true, true)
+    autocmd VimLeave * {
+		conduit.CleanupSystemOpenFiles()
+		conduit.MaybeCleanup(conduit.Connection.null_connection, true, true)
+	}
     autocmd BufReadCmd conduit://* {
 		setlocal buftype=nofile bufhidden=wipe noswapfile
 		call conduit.ConduitOpenCmd(false, true, '', bufname("%")[len("conduit://") : ])
