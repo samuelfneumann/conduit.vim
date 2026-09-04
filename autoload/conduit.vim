@@ -1089,6 +1089,8 @@ def OnLine(conn: Connection, line: string)
 	endif
 
 	var [ops, paths] = ParseOpsAndPaths(op_path)
+	const host = conn.host
+
 	if empty(paths) | return | endif
 
 	if len(ops) == 1 && ops[0] == "open"
@@ -1099,18 +1101,38 @@ def OnLine(conn: Connection, line: string)
 		endif
 		OpenWithDefaultProgram(conn, paths[0])
 	elseif len(ops) == 1 && ops[0] == "get"
+		const source_count = len(paths)
+		var display_paths = paths
+		const base_path = source_count == 1 ? fnamemodify(paths[0], ':t') : ""
+
 		if len(paths) == 1 || empty(paths[1])
-			RsyncFile(conn, true, paths[0], getcwd())
+			const target_path = getcwd()
+			var display_target_path = GetLocalPathForNotification(target_path, base_path)
+			const notif_suffix = $"{host}:{display_paths[0]} ‹→› {display_target_path}"
+			var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('get', notif_suffix)
+
+			RsyncFile(
+				conn, true, paths[0], target_path, ErrCb, OutCb, ExitCb,
+			)
 		elseif len(paths) == 2
 			const save_path = isabsolutepath(paths[1]) 
 				? paths[1] 
 				: getcwd() .. PathSep() .. paths[1]
-			RsyncFile(conn, true, paths[0], save_path)
+			const target_path = save_path
+
+			var display_target_path = GetLocalPathForNotification(target_path, base_path)
+			const notif_suffix = $"{host}:{display_paths[0]} ‹→› {display_target_path}"
+			var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('get', notif_suffix)
+
+			RsyncFile(
+				conn, true, paths[0], target_path, ErrCb, OutCb, ExitCb,
+			)
 		else
 			throw error.Error.InvalidNumberOfArguments.Format(
 				$"'get' expects 1 or 2 arguments, got {len(paths)}"
 			)
 		endif
+
 	elseif len(ops) == 1 && ops[0] == "put"
 		var local_file = expand(paths[0])
 
@@ -1148,7 +1170,13 @@ def OnLine(conn: Connection, line: string)
 					FilteredMenu(
 						matches,
 						(selected) => {
-							RsyncFile(conn, false, selected, remote_file)
+							const notif_suffix = $"{selected} ‹→› {host}:{remote_file}"
+							var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('put', notif_suffix)
+
+							RsyncFile(
+								conn, false, selected, remote_file,
+								ErrCb, OutCb, ExitCb,
+							)
 						},
 						"Select Files to Upload"
 					)
@@ -1156,7 +1184,13 @@ def OnLine(conn: Connection, line: string)
 					MultiChoicePrompt(
 						matches,
 						(selected) => {
-							RsyncFile(conn, false, selected, remote_file)
+							const notif_suffix = $"{selected} ‹→› {host}:{remote_file}"
+							var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('put', notif_suffix)
+
+							RsyncFile(
+								conn, false, selected, remote_file,
+								ErrCb, OutCb, ExitCb,
+							)
 						},
 						"Select Files to Upload"
 					)
@@ -1167,18 +1201,40 @@ def OnLine(conn: Connection, line: string)
 		endif
 
 		if len(paths) == 1 || empty(paths[1])
-			RsyncFile(conn, false, local_file, "")
+			const notif_suffix = $"{local_file} ‹→› {host}:./"
+			var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('put', notif_suffix)
+
+			RsyncFile(
+				conn, false, local_file, "", ErrCb, OutCb, ExitCb,
+			)
 		elseif len(paths) == 2
-			RsyncFile(conn, false, local_file, paths[1])
+			const notif_suffix = $"{local_file} ‹→› {host}:{paths[1]}"
+			var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('put', notif_suffix)
+			RsyncFile(
+				conn, false, local_file, paths[1], ErrCb, OutCb, ExitCb,
+			)
 		else
 			throw error.Error.InvalidNumberOfArguments.Format(
 				$"'put' expects 1 or 2 arguments, got {len(paths)}"
 			)
 		endif
 	elseif len(ops) == 1 && ops[0] == "mget"
+		const target_path = getcwd()
+
 		const remote_files = filter(deepcopy(paths), (_, v) => !empty(v))
 		if !empty(remote_files)
-			RsyncFiles(conn, true, remote_files, getcwd())
+			const source_count = len(remote_files)
+			const base_path = source_count == 1 ? fnamemodify(remote_files[0], ':t') : ""
+			var display_target_path = GetLocalPathForNotification(target_path, base_path)
+
+			const batch_label = source_count == 1 ? 'file' : 'files'
+			const notif_suffix = $"{source_count} {batch_label} ‹→› {display_target_path}"
+
+			var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('get', notif_suffix)
+
+			RsyncFiles(
+				conn, true, remote_files, target_path, ErrCb, OutCb, ExitCb,
+			)
 		endif
 	elseif len(ops) == 1 && ops[0] == "mput"
 		if empty(paths)
@@ -1186,7 +1242,7 @@ def OnLine(conn: Connection, line: string)
 				$"'mput' expects at least 1 argument"
 			)
 		endif
-
+		
 		const remote_path = len(paths) > 1 ? paths[1] : ""
 		const local_files = ExpandLocalGlob(paths[0])
 		if empty(local_files)
@@ -1194,7 +1250,20 @@ def OnLine(conn: Connection, line: string)
 			return
 		endif
 
-		RsyncFiles(conn, false, local_files, remote_path)
+		var display_paths: list<string>
+		for p in local_files
+			display_paths->add(GetLocalPathForNotification(p, ""))
+		endfor
+
+		const source_count = len(local_files)
+		const batch_label = source_count == 1 ? 'file' : 'files'
+		const notif_suffix = $"{source_count} {batch_label} ‹→› {host}:{remote_path}"
+
+		var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions('put', notif_suffix)
+
+		RsyncFiles(
+			conn, false, local_files, remote_path, ErrCb, OutCb, ExitCb,
+		)
 	elseif !empty(ops)
 		var i = 0
 		for path in paths
@@ -1225,7 +1294,10 @@ def OpenWithDefaultProgram(conn: Connection, remote_path: string)
 	const extension = fnamemodify(remote_path, ':e')
 	const local_file = tempname() .. (empty(extension) ? '' : '.' .. extension)
 
-	RsyncFile(conn, true, remote_path, local_file, () => {
+	const notif_suffix = $"caching {conn.host}:{remote_path} ‹→› {local_file}"
+
+	var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions(
+		"open",  notif_suffix, () => {
 		try
 			const opener = job_start(SystemOpenCommand(local_file))
 			if job_status(opener) !=# 'run'
@@ -1234,11 +1306,14 @@ def OpenWithDefaultProgram(conn: Connection, remote_path: string)
 				return
 			endif
 			system_open_files->add(local_file)
+			echom $'caching {remote_path} → {local_file}'
 		catch
 			delete(local_file)
 			Warn($'Could not open {remote_path} with the system default application')
 		endtry
 	})
+
+	RsyncFile(conn, true, remote_path, local_file, ErrCb, OutCb, ExitCb)
 enddef
 
 export def CleanupSystemOpenFiles()
@@ -1577,22 +1652,14 @@ def GetLocalPathForNotification(path: string, _basename: string): string
 	if path ==# getcwd() 
 		return '.' .. basename
 	endif
-	return './' .. fnamemodify(path, ':.') .. basename
+	const rel = fnamemodify(path, ':.') .. basename
+	return (!empty(rel) && rel[0] !=# '/' ? './' .. rel : rel)
 enddef
 
-def StartTransferJob(
-	conn: Connection,
-	get: bool,
-	op: string,
-	scp_cmd: list<string>,
-	notif_suffix: string,
-	local_file: string,
-	remote_file: string,
+def GetTransferNotificationFunctions(
+	op: string, notif_suffix: string,
 	OnSuccess: func(): void = null_function,
-)
-
-	if g:conduit_verbose && !empty(scp_cmd) | echom $"Conduit(sh/{op}):" scp_cmd->join(' ') | endif
-
+): tuple<func(channel, string): void, func(channel, string): void, func(job, number): void>
 	const display_op = $'[{op}]'
 	const notif = notifier.StartProgress(
 		notif_suffix,
@@ -1603,66 +1670,94 @@ def StartTransferJob(
 	const throttle = 1.250 # seconds
 	var last_run = reltime()
 
+	var err_msgs: list<string> = []
+	const ErrCb = (_: channel, msg: string) => {
+		err_msgs->add(msg)
+	}
+
+	const OutCb = (_: channel, msg: string) => {
+		# Throttle
+		const seconds_since_last_run = reltime(last_run)->reltimefloat()
+		if seconds_since_last_run < throttle | return | endif
+		last_run = reltime()
+
+		var latest: string
+		var percent: number
+		var speed: string
+		if executable('rsync') 
+			[latest, percent, speed] = ParseRsync(msg)
+		else
+			[latest, percent, speed] = ParseScp(msg)
+		endif
+
+		if g:conduit_verbose && !empty(latest) | echom $'Conduit({op}):' latest | endif
+
+		# Update progress bar
+		if percent > 0 && !empty(speed)
+			notifier.UpdateProgress(
+				notif,
+				percent,
+				100, 
+				notif_suffix,
+				{subprefix: $'[{speed}]'},
+			)
+		endif
+	}
+
+	const ExitCb = (_: job, code: number) => {
+		if code == 0
+			# Briefly show the full, final progress bar and success
+			# message, then dismiss
+			notifier.UpdateProgress(
+				notif,
+				100,
+				100,
+				notif_suffix,
+				{subprefix: '[‹✓› success]'},
+			)
+			notifier.Dismiss(notif, GetSuccessTimeout())
+			if OnSuccess != null | OnSuccess() | endif
+		else
+			notifier.Modify(
+				notif,
+				$"{err_msgs->join(' ‹|› ')}",
+				{subprefix: $'[‹×› failed (error: {code})]'},
+			)
+			notifier.Dismiss(notif, GetFailureTimeout())
+		endif
+	}
+
+	return (ErrCb, OutCb, ExitCb)
+enddef
+
+def StartTransferJob(
+	conn: Connection,
+	get: bool,
+	op: string,
+	scp_cmd: list<string>,
+	local_file: string,
+	remote_file: string,
+	ErrCb: func(channel, string): void = null_function, 
+	OutCb: func(channel, string): void = null_function, 
+	ExitCb: func(job, number): void = null_function,
+)
+	if g:conduit_verbose && !empty(scp_cmd) | echom $"Conduit(sh/{op}):" scp_cmd->join(' ') | endif
+
 	var scp_op: Op
 	var scp_ops = get ? g:conduit_get_ops : g:conduit_put_ops
 
-	var err_msgs: list<string> = []
 	const j = job_start(
 		scp_cmd, {
 		out_io: "pipe",
 		out_mode: "raw",
-		err_cb: (_, msg) => {
-			err_msgs->add(msg)
+		err_cb: (ch, msg) => {
+			if ErrCb != null | ErrCb(ch, msg) | endif
 		},
-		out_cb: (_, msg) => {
-			# Throttle
-			const seconds_since_last_run = reltime(last_run)->reltimefloat()
-			if seconds_since_last_run < throttle | return | endif
-			last_run = reltime()
-
-			var latest: string
-			var percent: number
-			var speed: string
-			if executable('rsync') 
-				[latest, percent, speed] = ParseRsync(msg)
-			else
-				[latest, percent, speed] = ParseScp(msg)
-			endif
-
-			if g:conduit_verbose && !empty(latest) | echom $'Conduit({op}):' latest | endif
-
-			# Update progress bar
-			if percent > 0 && !empty(speed)
-				notifier.UpdateProgress(
-					notif,
-					percent,
-					100, 
-					notif_suffix,
-					{subprefix: $'[{speed}]'},
-				)
-			endif
+		out_cb: (ch, msg) => {
+			if OutCb != null | OutCb(ch, msg) | endif
 		},
-		exit_cb: (_, code) => {
-			if code == 0
-				# Briefly show the full, final progress bar and success
-				# message, then dismiss
-				notifier.UpdateProgress(
-					notif,
-					100,
-					100,
-					notif_suffix,
-					{subprefix: '[‹✓› success]'},
-				)
-				notifier.Dismiss(notif, GetSuccessTimeout())
-				if OnSuccess != null | OnSuccess() | endif
-			else
-				notifier.Modify(
-					notif,
-					$"{err_msgs->join(' ‹|› ')}",
-					{subprefix: $'[‹×› failed (error: {code})]'},
-				)
-				notifier.Dismiss(notif, GetFailureTimeout())
-			endif
+		exit_cb: (j, code) => {
+			if ExitCb != null | ExitCb(j, code) | endif
 
 			# Remove the completed op from the list of stored operations
 			const idx = scp_ops->index(scp_op)
@@ -1758,9 +1853,13 @@ def RsyncFile(
 	get: bool,
 	path: string,
 	target_path: string,
-	OnSuccess: func(): void = null_function,
+	ErrCb: func(channel, string): void = null_function, 
+	OutCb: func(channel, string): void = null_function, 
+	ExitCb: func(job, number): void = null_function,
 )
-	RsyncFiles(conn, get, [path], target_path, OnSuccess)
+	RsyncFiles(
+		conn, get, [path], target_path, ErrCb, OutCb, ExitCb,
+	)
 enddef
 
 def Zip<T>(l1: list<T>, l2: list<T>): list<tuple<T, T>>
@@ -1776,15 +1875,16 @@ def RsyncFiles(
 	get: bool,
 	paths: list<string>,
 	target_path: string,
-	OnSuccess: func(): void = null_function,
+	ErrCb: func(channel, string): void = null_function, 
+	OutCb: func(channel, string): void = null_function, 
+	ExitCb: func(job, number): void = null_function,
 )
 	if empty(paths)
 		return
 	endif
 
 	const host = conn.host
-	const source_count = len(paths)
-	const batch_label = source_count == 1 ? 'file' : 'files'
+	# const source_count = len(paths)
 
 	var cmd: list<string>
 	if get
@@ -1793,40 +1893,16 @@ def RsyncFiles(
 		cmd = BuildPutCommand(conn, paths, target_path)
 	endif
 
-	var display_paths: list<string>
-	if get
-		display_paths = paths
-	else
-		for p in paths
-			display_paths->add(GetLocalPathForNotification(p, ""))
-		endfor
-	endif
-
-	var display_target_path: string
-	if get
-		const base_path = source_count == 1 ? fnamemodify(paths[0], ':t') : ""
-		display_target_path = GetLocalPathForNotification(target_path, base_path)
-	else
-		display_target_path = target_path
-	endif
-
-	const notif_suffix = source_count == 1
-		? get
-			? $"{host}:{display_paths[0]} ‹→› {display_target_path}"
-			: $"{display_paths[0]} ‹→› {host}:{display_target_path}"
-		: get
-			? $"{source_count} {batch_label} ‹→› {display_target_path}"
-			: $"{source_count} {batch_label} ‹→› {host}:{display_target_path}"
-
 	StartTransferJob(
 		conn,
 		get,
 		get ? 'get' : 'put',
 		cmd,
-		notif_suffix,
 		get ? target_path : paths->join(", "),
 		get ? paths->join(", ") : target_path,
-		OnSuccess,
+		ErrCb,
+		OutCb,
+		ExitCb,
 	)
 enddef
 
