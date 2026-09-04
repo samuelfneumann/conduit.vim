@@ -250,9 +250,10 @@ command and terminal that Conduit requires.
 :Conduit disconnect {connection-key}                        *:Conduit-disconnect*
         Forcefully disconnect the named connection.
 
-:Conduit source {connection-key}                            *:Conduit-source*
+:Conduit source [++nameonly] {connection-key}               *:Conduit-source*
         Echo and copy the `source` command for the remote conduit RC file to
-        the system clipboard.
+        the system clipboard. With `++nameonly`, echo and copy only the remote
+        RC filename, without the leading `source` command.
 
 :Conduit notifications {history|dismiss}                    *:Conduit-notifications*
         Show a history of conduit notifications or dismiss all active

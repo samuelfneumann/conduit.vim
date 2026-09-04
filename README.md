@@ -103,6 +103,9 @@ Then, read the docs:
 " this command on the remote shell to activate the lvim/vim aliases.
 :Conduit source user@example.com
 
+" Copy only the remote RC filename, without the leading `source` command
+:Conduit source ++nameonly user@example.com
+
 " Show notification history
 :Conduit notifications history
 
