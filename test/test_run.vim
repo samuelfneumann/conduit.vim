@@ -165,6 +165,18 @@ call assert_equal(
 Conduit deploy testhost
 sleep 500m
 
+call assert_true(index(
+	\ conduit#ConduitCompl('++nam', 'Conduit source ++nam', strlen('Conduit source ++nam') + 1),
+	\ '++nameonly',
+	\ ) >= 0)
+messages clear
+Conduit source testhost
+let full_source = @+
+call assert_match('^source \S\+$', full_source)
+Conduit source ++nameonly testhost
+call assert_equal(substitute(full_source, '^source ', '', ''), @+)
+call assert_match('run: ' .. escape(@+, '\'), execute('messages'))
+
 let g:conduit_run_alias = {
 	\ 'launch_job': {
 	\   'alias': 'echo $0; echo $1:4:oops; echo DONE:$2',

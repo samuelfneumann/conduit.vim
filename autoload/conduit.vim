@@ -3520,13 +3520,15 @@ export def ConduitDisconnectCmd(host: string)
 	endif
 enddef
 
-export def ConduitCopySourceCmd(host: string)
+export def ConduitCopySourceCmd(host: string, name_only: bool = false)
 	const key = ResolveConnectionKey(host)
 	if !empty(key)
 		const conn = connections[key]
-		const source_cmd = $"source {conn.GetRemoteRCPath()}"
-		echom $"run: {source_cmd}" 
-		@+ = source_cmd
+		const source_text = name_only
+			? conn.GetRemoteRCPath()
+			: $"source {conn.GetRemoteRCPath()}"
+		echom source_text
+		@+ = source_text
 	else
         Warn($'No host "{host}"')
 	endif
@@ -3624,11 +3626,14 @@ def ConduitCmdList(deploy_only: bool, bang: bool, mods: string, args: list<strin
 			ConduitDisconnectCmd(args[1])
 		endif
 
-	elseif cmd ==# "source" # :Conduit source HOST
-		if len(args) != 2
-			echoerr "Usage:  Conduit source [connection-key]"
+	elseif cmd ==# "source" # :Conduit source [++nameonly] HOST
+		const source_args = args[1 :]
+		const name_only = index(source_args, '++nameonly') >= 0
+		const hosts = copy(source_args)->filter((_, value) => value !=# '++nameonly')
+		if len(hosts) != 1 || len(source_args) != len(hosts) + (name_only ? 1 : 0)
+			echoerr "Usage:  Conduit source [++nameonly] [connection-key]"
 		else
-			ConduitCopySourceCmd(cmd_args)
+			ConduitCopySourceCmd(hosts[0], name_only)
 		endif
 
 	elseif cmd ==# "notifications" # :Conduit notifications
@@ -3841,8 +3846,14 @@ export def ConduitCompl(ArgLead: string, CmdLine: string, CursorPos: number): li
 		return ConduitHostAndOptionCompl(ArgLead, CmdLine, CursorPos)
     elseif  cmd ==# "deploy"
 		return ConduitHostComplHelper(current_cmd, ArgLead)
-    elseif  cmd ==# "notifications"
+	elseif  cmd ==# "notifications"
 		return ConduitNotificationComplHelper(current_cmd, ArgLead)
+	elseif cmd ==# "source"
+		const source_options = CmdLine =~# '\s++nameonly\%($\|\s\)'
+			? [] : ['++nameonly']
+		const suggestions = source_options + keys(connections)
+		if empty(ArgLead) | return suggestions | endif
+		return matchfuzzy(suggestions, ArgLead)
 	elseif cmd ==# 'run'
 		var run_parts = len(parts) > 2 ? parts[2 : ] : []
 		const ends_in_space = current_cmd =~# '\s$'
