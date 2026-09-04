@@ -1577,7 +1577,8 @@ def GetLocalPathForNotification(path: string, _basename: string): string
 	if path ==# getcwd() 
 		return '.' .. basename
 	endif
-	return './' .. fnamemodify(path, ':.') .. basename
+	const rel = fnamemodify(path, ':.') .. basename
+	return (!empty(rel) && rel[0] !=# '/' ? './' .. rel : rel)
 enddef
 
 def StartTransferJob(
