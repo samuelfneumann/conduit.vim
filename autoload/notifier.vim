@@ -1152,6 +1152,8 @@ export def ShowHistory()
     # Open a 10-line split at the bottom
     execute('botright :10new')
     setlocal buftype=nofile bufhidden=wipe noswapfile
+	setlocal filetype=conduit-notifications 
+	setlocal concealcursor=nvic
 	const entries = NotificationManager.Instance.GetHistoryEntries()
 	var lines: list<string> = []
 	for entry in entries
@@ -1174,6 +1176,7 @@ export def ShowHistory()
 		AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
 		AddMarkedSymbolHighlights(bufnr, l + 1, text)
 	endfor
+	setlocal readonly nomodifiable
 	
 	# Press 'q' to quickly close the history buffer
     nnoremap <buffer> <silent> q :bwipeout<CR>
