@@ -161,6 +161,20 @@ call assert_equal(
 	\ ['get', 'put', 'run', '*'],
 	\ conduit#ConduitCompl('', 'Conduit stop ', strlen('Conduit stop ') + 1),
 	\ )
+call assert_equal(
+	\ ['history', 'dismiss', 'hide', 'show'],
+	\ conduit#ConduitCompl('', 'Conduit notifications ', strlen('Conduit notifications ') + 1),
+	\ )
+
+let notification = notifier#Send('visibility test')
+call assert_equal(1, popup_getpos(notification).visible)
+Conduit notifications hide
+call assert_equal(0, popup_getpos(notification).visible)
+call assert_equal('popup', win_gettype(notification))
+Conduit notifications show
+call assert_equal(1, popup_getpos(notification).visible)
+call assert_equal('popup', win_gettype(notification))
+call notifier#Dismiss(notification)
 
 Conduit deploy testhost
 sleep 500m

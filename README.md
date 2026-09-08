@@ -112,6 +112,10 @@ Then, read the docs:
 " Dismiss active notification
 :Conduit notifications dismiss
 
+" Hide or show active notifications without dismissing them
+:Conduit notifications hide
+:Conduit notifications show
+
 " Stop a transfer for a connection
 :Conduit stop get user@example.com '*.log'
 :Conduit stop put user@example.com '*.log'

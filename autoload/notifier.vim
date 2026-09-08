@@ -435,6 +435,18 @@ class NotificationManager
 		endfor
 	enddef
 
+	def HideAll()
+		for winid in this.GetActive()
+			popup_hide(winid)
+		endfor
+	enddef
+
+	def ShowAll()
+		for winid in this.GetActive()
+			popup_show(winid)
+		endfor
+	enddef
+
 	def UpdatePositions()
 		var current_line = 0
 		var is_bottom = position =~# '^bottom'
@@ -1051,6 +1063,14 @@ enddef
 
 export def DismissAll()
 	NotificationManager.Instance.DismissAll()
+enddef
+
+export def HideAll()
+	NotificationManager.Instance.HideAll()
+enddef
+
+export def ShowAll()
+	NotificationManager.Instance.ShowAll()
 enddef
 
 export def StartLoading(msg: string, opts: dict<any> = {}): number
