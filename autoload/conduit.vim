@@ -3630,6 +3630,10 @@ export def ConduitNotificationCmd(cmd: string)
 		notifier.ShowHistory()
 	elseif cmd ==# "dismiss"
 		notifier.DismissAll()
+	elseif cmd ==# "hide"
+		notifier.HideAll()
+	elseif cmd ==# "show"
+		notifier.ShowAll()
 	endif
 enddef
 
@@ -3826,7 +3830,7 @@ export def ConduitHostComplHelper(current_cmd: string, pattern: string): list<st
 enddef
 
 export def ConduitNotificationComplHelper(current_cmd: string, pattern: string): list<string>
-    var options = ['history', 'dismiss']
+    var options = ['history', 'dismiss', 'hide', 'show']
 	if empty(pattern) | return options | endif
     return matchfuzzy(options, pattern)
 enddef
