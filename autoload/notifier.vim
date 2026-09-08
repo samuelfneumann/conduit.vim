@@ -445,6 +445,7 @@ class NotificationManager
 		for winid in this.GetActive()
 			popup_show(winid)
 		endfor
+		this.UpdatePositions()
 	enddef
 
 	def UpdatePositions()
@@ -459,7 +460,7 @@ class NotificationManager
 
 		for winid in this.active_notifs
 			var pos_info = popup_getpos(winid)
-			if empty(pos_info) | continue | endif
+			if empty(pos_info) || !pos_info.visible | continue | endif
 
 			popup_setoptions(winid, {line: current_line})
 
