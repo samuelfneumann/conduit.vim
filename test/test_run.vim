@@ -176,6 +176,19 @@ call assert_equal(1, popup_getpos(notification).visible)
 call assert_equal('popup', win_gettype(notification))
 call notifier#Dismiss(notification)
 
+let hidden_notification = notifier#Send('hidden position test')
+let notification_base_line = popup_getpos(hidden_notification).line
+Conduit notifications hide
+let shown_notification = notifier#Send('shown position test')
+call assert_equal(notification_base_line, popup_getpos(shown_notification).line)
+Conduit notifications show
+call assert_equal(
+	\ notification_base_line + popup_getpos(hidden_notification).height,
+	\ popup_getpos(shown_notification).line,
+	\ )
+call notifier#Dismiss(hidden_notification)
+call notifier#Dismiss(shown_notification)
+
 Conduit deploy testhost
 sleep 500m
 
