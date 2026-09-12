@@ -60,12 +60,19 @@ const open_file_ops = [
 	"split", "sp",
 	"vsplit", "vsp", "vert", "vertical",
 	"tabe", "tabedit", "tabnew", "tab",
+]
+
+const args_ops = [
+	"ar", "arg", "args",
 	"arga", "argadd",
 	"arge", "argedit",
 ]
 
 # All supported `lvim` ops
-const all_ops = ["put", "get", "mget", "mput", "open"]->extend(open_file_ops)->extend(modifiers)
+const all_ops = ["put", "get", "mget", "mput", "open"]
+	->extend(open_file_ops)
+	->extend(args_ops)
+	->extend(modifiers)
 
 # ── Classes & Core Types ─────────────────────────────────────────────────────
 abstract class ConduitOption
@@ -1264,6 +1271,8 @@ def OnLine(conn: Connection, line: string)
 		RsyncFiles(
 			conn, false, local_files, remote_path, ErrCb, OutCb, ExitCb,
 		)
+	elseif len(ops) == 1 && (ops[0] =~ '\var(g|gs)?')
+		OpenFiles(conn, ops, paths)
 	elseif !empty(ops)
 		var i = 0
 		for path in paths
@@ -1525,7 +1534,7 @@ def SetRemoteBufferMetadata(bufnr: number, conn: Connection, remote_path: string
 	setbufvar(bufnr, 'conduit_remote_path', remote_path)
 enddef
 
-def OpenFileScp(conn: Connection, op: string, abs: string, target: string)
+def OpenFilesScp(conn: Connection, op: string, abs_paths: list<string>, targets: list<string>)
 	# Conduit owns the control socket path for each connection profile, so
 	# netrw must always be pointed at the profile-specific socket.
 	const scp_cmd = GetNetrwScpCmd(conn)
@@ -1539,18 +1548,19 @@ def OpenFileScp(conn: Connection, op: string, abs: string, target: string)
 
 	g:netrw_scp_cmd = scp_cmd
 	try
-		execute op .. ' ' .. fnameescape(target)
+		execute op .. ' ' .. targets->mapnew((_, target) => fnameescape(target))->join(' ')
 	catch /E492/
 		throw error.Error.InvalidOp.Format(
-			$'could not run "execute {op} {fnameescape(target)}"'
+			$'could not run "execute {op} {targets->join(' ')}"'
 		)
 	finally
 		RestoreNetrwScpCmd(reset_netrw_scp_cmd, netrw_scp_cmd_before)
 	endtry
 
-	const remote_bufnr = bufnr(target)
-	if remote_bufnr > 0
-		SetRemoteBufferMetadata(remote_bufnr, conn, abs)
+	for i in range(0, len(targets) - 1)
+		const remote_bufnr = bufnr(targets[i])
+		if remote_bufnr <= 0 | continue | endif
+		SetRemoteBufferMetadata(remote_bufnr, conn, abs_paths[i])
 
 		# Setup autocommands for hooking into and resetting netrw's scp
 		# variables on write
@@ -1560,10 +1570,10 @@ def OpenFileScp(conn: Connection, op: string, abs: string, target: string)
 			autocmd BufWritePre <buffer> g:netrw_scp_cmd = b:scp_cmd
 			autocmd BufWritePost <buffer> g:netrw_scp_cmd = b:netrw_scp_cmd_before
 		augroup END
-	endif
+	endfor
 enddef
 
-def OpenFileRsync(conn: Connection, op: string, abs: string, target: string)
+def OpenFilesRsync(conn: Connection, op: string, abs_paths: list<string>, targets: list<string>)
 	# Conduit owns the control socket path for each connection profile, so
 	# netrw must always be pointed at the profile-specific socket.
 	const rsync_cmd = GetNetrwRsyncCmd(conn)
@@ -1588,19 +1598,20 @@ def OpenFileRsync(conn: Connection, op: string, abs: string, target: string)
 	g:netrw_rsync_cmd = rsync_cmd
 	g:netrw_rsync_sep = rsync_sep
 	try
-		execute op .. ' ' .. fnameescape(target)
+		execute op .. ' ' .. targets->mapnew((_, target) => fnameescape(target))->join(' ')
 	catch /E492/
 		throw error.Error.InvalidOp.Format(
-			$'could not run "execute {op} {fnameescape(target)}"'
+			$'could not run "execute {op} {targets->join(' ')}"'
 		)
 	finally
 		RestoreNetrwRsyncCmd(reset_netrw_rsync_cmd, netrw_rsync_cmd_before)
 		RestoreNetrwRsyncSep(reset_netrw_rsync_sep, netrw_rsync_sep_before)
 	endtry
 
-	const remote_bufnr = bufnr(target)
-	if remote_bufnr > 0
-		SetRemoteBufferMetadata(remote_bufnr, conn, abs)
+	for i in range(0, len(targets) - 1)
+		const remote_bufnr = bufnr(targets[i])
+		if remote_bufnr <= 0 | continue | endif
+		SetRemoteBufferMetadata(remote_bufnr, conn, abs_paths[i])
 
 		# Setup autocommands for hooking into and resetting netrw's rsync
 		# variables on write
@@ -1614,28 +1625,36 @@ def OpenFileRsync(conn: Connection, op: string, abs: string, target: string)
 			autocmd BufWritePre <buffer> g:netrw_rsync_sep = b:rsync_sep
 			autocmd BufWritePost <buffer> g:netrw_rsync_sep = b:netrw_rsync_sep_before
 		augroup END
-	endif
+	endfor
+enddef
+
+def OpenFiles(conn: Connection, oper: list<string>, remote_paths: list<string>)
+	const op = oper->join(' ')
+	var abs_paths: list<string> = []
+	var targets: list<string> = []
+	for remote_path in remote_paths
+		const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
+		abs_paths->add(abs)
+		targets->add(UseRsync()
+			? (empty(conn.host) ? remote_path : GetRsyncTarget(conn, abs))
+			: (empty(conn.host) ? remote_path : GetScpTarget(conn, abs)))
+	endfor
+
+	try
+		if UseRsync()
+			OpenFilesRsync(conn, op, abs_paths, targets)
+		else
+			OpenFilesScp(conn, op, abs_paths, targets)
+		endif
+
+		if g:conduit_verbose | echom $"Conduit(vim/{op}):" op targets->join(' ') | endif
+    catch
+		Warn('Failed to open ' .. targets->join(', ') .. ' (error: ' .. v:exception .. ')')
+    endtry
 enddef
 
 def OpenFile(conn: Connection, oper: list<string>, remote_path: string)
-	const op = oper->join(' ')
-	const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
-
-	var target: string
-	try
-		if UseRsync()
-			target = empty(conn.host) ? remote_path : GetRsyncTarget(conn, abs)
-			OpenFileRsync(conn, op, abs, target)
-		else
-			target = empty(conn.host) ? remote_path : GetScpTarget(conn, abs)
-			OpenFileScp(conn, op, abs, target)
-		endif
-
-		if g:conduit_verbose | echom $"Conduit(vim/{op}):" op target | endif
-    catch
-        Warn('Failed to open ' .. target .. ' (error: ' .. v:exception .. ')')
-    endtry
-
+	OpenFiles(conn, oper, [remote_path])
 enddef
 
 # Computes the local pathname to show in a notification
