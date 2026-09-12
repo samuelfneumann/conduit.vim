@@ -198,6 +198,7 @@ The `lvim` function is injected into your remote shell automatically.
 $ lvim file.txt           # Opens in a horizontal split (default)
 $ lvim vsplit file.txt    # Opens in a vertical split
 $ lvim tabe file.txt      # Opens in a new tab
+$ lvim args *.py          # Sets the local argument list
 $ lvim open report.pdf    # Opens in the local system default application
 
 # Bulk operations
@@ -214,6 +215,8 @@ By default, Conduit aliases `vim` to `lvim` on the remote shell, so all the comm
 
 `lvim open` downloads one remote file to a temporary local file before opening
 it. Conduit removes that temporary file when Vim exits.
+
+`lvim arg[s] FILES` sets the local Vim argument list from the remote files.
 
 ### SSH Options
 
