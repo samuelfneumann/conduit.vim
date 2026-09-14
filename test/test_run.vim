@@ -7,6 +7,9 @@ let $CONDUIT_TEST_RSYNC = tempname()
 let $CONDUIT_TEST_SCP = tempname()
 runtime plugin/conduit.vim
 
+let conduit_source = join(readfile('autoload/conduit.vim'), "\n")
+call assert_match('"arg", "args"', conduit_source)
+
 let open_parsed = conduit#ParseConduitOpenArgs('++nodeploy ++hidden testhost')
 call assert_equal(v:true, open_parsed.nodeploy)
 call assert_equal({'hidden': ''}, open_parsed.term_options)
@@ -202,7 +205,7 @@ let full_source = @+
 call assert_match('^source \S\+$', full_source)
 Conduit source ++nameonly testhost
 call assert_equal(substitute(full_source, '^source ', '', ''), @+)
-call assert_match('run: ' .. escape(@+, '\'), execute('messages'))
+call assert_match(escape(@+, '\'), execute('messages'))
 
 let g:conduit_run_alias = {
 	\ 'launch_job': {

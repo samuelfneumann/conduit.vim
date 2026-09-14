@@ -435,6 +435,7 @@ Available {op}s are:
     - tab vert split
     - tab vertical split
     - tab vsp
+    - ar[gs]
     - arga
     - argadd
     - open
@@ -459,11 +460,12 @@ Available {op}s are:
     - botright
 
 Examples:
-- `lvim vert split file.txt` — Opens file.txt in a vertical split (no quoting needed)
-- `lvim tab split file.txt` — Opens file.txt in a new tab split
-- `lvim belowright split file.txt` — Opens file.txt in a below split
-- `lvim file.txt` — Opens file.txt using |g:conduit_default_split|
-- `lvim -- file.txt` — Explicitly marks file.txt as a filename (useful if a filename matches an operation name)
+- `lvim vert split file.txt` ─ Opens file.txt in a vertical split (no quoting needed)
+- `lvim tab split file.txt` ─ Opens file.txt in a new tab split
+- `lvim belowright split file.txt` ─ Opens file.txt in a below split
+- `lvim file.txt` ─ Opens file.txt using |g:conduit_default_split|
+- `lvim ar[gs] file1 file2 ...` ─ Sets the local Vim argument list from remote files
+- `lvim -- file.txt` ─ Explicitly marks file.txt as a filename (useful if a filename matches an operation name)
 
 File Transfer Operations:
 - put {local_file} [{remote_file}]: Upload local {local_file} to remote {remote_file}. If `{remote_file}` is omitted, Conduit uses the remote shell's current directory.
