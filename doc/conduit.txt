@@ -538,6 +538,10 @@ g:notifier_overflow                                     *g:notifier_overflow*
         message text, and for spinner/progress notifications they are shown
         after the spinner or progress bar.
 
+g:conduit_notifier_n_rotations_before_auto_dismiss          *g:conduit_notifier_n_rotations_before_auto_dismiss*
+        Minimum number of rotations for carousel rotations before auto-dismissing them
+        Default: 1
+
 NotifyPrefix                                             *NotifyPrefix*
         Highlight group used for notification prefixes.
 
