@@ -53,9 +53,9 @@ command! -bar -nargs=+ -complete=customlist,conduit.ConduitHostCompl ConduitDepl
 	conduit.ConduitOpenCmd(true, false, '', <q-args>)
 }
 
-command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitExit {
+command! -bar -bang -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitExit {
 	EchoDeprecated(":ConduitExit is deprecated and will be removed in a future version of Conduit. Use `:Conduit exit`") 
-	conduit.ConduitExitCmd(<q-args>)
+	conduit.ConduitExitCmd(<q-args>, !empty(expand("<bang>")))
 }
 command! -bar -nargs=1 -complete=customlist,conduit.ConduitActiveCompl ConduitDisconnect {
 	EchoDeprecated(":ConduitDisconnect is deprecated and will be removed in a future version of Conduit. Use `:Conduit disconnect`") 
