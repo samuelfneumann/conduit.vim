@@ -3497,7 +3497,23 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	endif
 enddef
 
-export def ConduitExitCmd(host: string)
+def ShowConduitExitCmdSuccessMessage(
+	notif: number, host: string, success: bool, stderr: list<string> = []
+)
+	if success
+		notifier.StopLoading(
+			notif, $"‹✓› Exited from {host}", false, GetSuccessTimeout(),
+		)
+	else
+		var err_msg: string
+		if !empty(stderr) | err_msg = ': ' .. stderr->join('‹|›') | endif
+		notifier.StopLoading(
+			notif, $"‹×› Could not exit from {host}{err_msg}", false, GetFailureTimeout(),
+		)
+	endif
+enddef
+
+export def ConduitExitCmd(host: string, global: bool)
 	const key = ResolveConnectionKey(host)
 	if !empty(key)
 		const conn = connections[key]
@@ -3515,21 +3531,31 @@ export def ConduitExitCmd(host: string)
 			endfor
 
 			# Perform cleanup
-			const success = MaybeCleanup(conn, false, true)
-
-			# Do not forcibly exit a shared control master here. Multiple Vim
-			# instances can reuse the same ControlMaster, so closing it from one
-			# session would break the others. Let ControlPersist or an explicit
-			# SSH shutdown handle the master lifetime.
-			if success
-				notifier.StopLoading(
-					notif, $"‹✓› Exited from {host}", false, GetSuccessTimeout(),
-				)
-			else
-				notifier.StopLoading(
-					notif, $"‹×› Could not exit from {host}", false, GetFailureTimeout(),
-				)
-			endif
+			MaybeCleanup(
+				conn,
+				false,
+				true,
+				(success: bool) => {
+					if global
+						var err_msgs: list<string> = []
+						job_start(
+							["ssh", '-S', conn.GetConduitControlPath(), '-O', 'exit', conn.host],
+							{
+								err_cb: (_, msg) => err_msgs->add(msg),
+								exit_cb: (job, status) => {
+									ShowConduitExitCmdSuccessMessage(
+										notif,
+										host,
+										success && status == 0,
+										err_msgs,
+									)
+							 }}
+						)
+						return
+					endif
+					ShowConduitExitCmdSuccessMessage(notif, host, success)
+				}
+			)
 		endif
 	else
         Warn($'No current control socket for {host}')
@@ -3704,7 +3730,7 @@ def ConduitCmdList(deploy_only: bool, bang: bool, mods: string, args: list<strin
 		if len(args) != 2
 			echoerr "Usage:  Conduit exit [connection-key]"
 		else
-			ConduitExitCmd(cmd_args)
+			ConduitExitCmd(cmd_args, bang)
 		endif
 
 	elseif cmd ==# "deploy" # :Conduit deploy HOST

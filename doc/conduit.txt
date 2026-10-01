@@ -96,6 +96,13 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
         listed above are accepted. A bare `++` (or `--`) by itself stops
         option parsing before the host.
 
+:Conduit! open [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
+                                                       *:Conduit-open-bang*
+        Open the SSH terminal in the current window instead of creating a
+        split or tab. The `++curwin` option also selects the current window.
+        This form accepts the same options as |:Conduit-open|. The bang is
+        attached to `:Conduit`; `:Conduit open!` is not supported.
+
 :Conduit deploy [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-deploy*
         Deploy the conduit environment to {host} without opening a terminal.
@@ -245,7 +252,15 @@ command and terminal that Conduit requires.
 
 :Conduit exit {connection-key}                              *:Conduit-exit*
         Cleanly close the conduit session for {connection-key}, removing
-        remote temporary files and closing the reverse tunnel.
+        remote temporary files and closing the reverse tunnel. The shared SSH
+        ControlMaster stays open so other sessions can continue using it.
+
+:Conduit! exit {connection-key}                        *:Conduit-exit-bang*
+        Clean up the selected session, then send an exit request to its SSH
+        ControlMaster. This closes the shared master and disconnects other
+        sessions using the same control socket, including sessions in other
+        Vim instances. The bang is attached to `:Conduit`; `:Conduit exit!`
+        is not supported.
 
 :Conduit disconnect {connection-key}                        *:Conduit-disconnect*
         Forcefully disconnect the named connection.
@@ -279,11 +294,17 @@ command and terminal that Conduit requires.
 :ConduitOpen {host}                                         *:ConduitOpen*
         Deprecated in favor of `:Conduit open`.
 
+:ConduitOpen! {host}                                   *:ConduitOpen-bang*
+        Deprecated in favor of |:Conduit-open-bang|.
+
 :ConduitDeploy {host}                                       *:ConduitDeploy*
         Deprecated in favor of `:Conduit deploy`.
 
 :ConduitExit {host}                                         *:ConduitExit*
-        Deprecated in favor of `:Conduit exit`.
+        Deprecated in favor of |:Conduit-exit|.
+
+:ConduitExit! {host}                                   *:ConduitExit-bang*
+        Deprecated in favor of |:Conduit-exit-bang|.
 
 :ConduitDisconnect {host}                                   *:ConduitDisconnect*
         Deprecated in favor of `:Conduit disconnect`.
