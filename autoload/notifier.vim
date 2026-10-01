@@ -408,30 +408,57 @@ class NotificationManager
 
 	enddef
 
-	def DismissBy(winid: number)
+	def MaybeDismissBy(winid: number): bool
 		const id_str = string(winid)
-		if this.IsActiveBy(winid)
+		if this.IsActiveBy(winid) 
+			const is_carouselling = carousel_text_strategy.IsCarouselling(winid)
+			const n = get(g:, 'conduit_notifier_n_rotations_before_auto_dismiss', 1)
+			const rot_okay = carousel_text_strategy.GetRotations(winid) >= n
+			if (!is_carouselling) || (is_carouselling && rot_okay)
+				popup_close(winid)
+				this.RemoveBy(winid)
+				return true
+			elseif is_carouselling && !rot_okay
+				return false
+			endif
+		endif
+		return true
+	enddef
+
+	def DismissBy(winid: number, force: bool)
+		if force && this.IsActiveBy(winid)
 			popup_close(winid)
 			this.RemoveBy(winid)
+			return
+		endif
+
+		var dismissed = this.MaybeDismissBy(winid)
+		if ! dismissed
+			var t = timer_start(
+				250,
+				(t) => {
+					if this.MaybeDismissBy(winid)
+						timer_stop(t)
+					endif
+				},
+				{repeat: -1}
+			)
 		endif
 	enddef
 
-	def Dismiss(notif: Notification)
-		if this.IsActive(notif)
-			popup_close(notif.winid)
-			this.RemoveBy(notif.winid)
-		endif
+	def Dismiss(notif: Notification, force: bool)
+		this.DismissBy(notif.winid, force)
 	enddef
 
-	def DismissAll()
+	def DismissAll(force: bool)
 		for notif in values(this.active_spinners)
-			this.Dismiss(notif)
+			this.Dismiss(notif, force)
 		endfor
 		for notif in values(this.active_pbars)
-			this.Dismiss(notif)
+			this.Dismiss(notif, force)
 		endfor
 		for notif in values(this.active_basic)
-			this.Dismiss(notif)
+			this.Dismiss(notif, force)
 		endfor
 	enddef
 
@@ -762,9 +789,18 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 	var msgs: dict<string> = {}
 	var prefixes: dict<string> = {}
 	var idxs: dict<number> = {}
+	var n_rotations: dict<number> = {}
 
 	def CanAnimate(msg: string, fixed_prefix: string = ''): bool
 		return strcharlen(fixed_prefix .. msg) > GetMaxWidth()
+	enddef
+	
+	def IsCarouselling(winid: number): bool
+		return this.active->has_key(winid)
+	enddef
+
+	def GetRotations(winid: number): number
+		return get(this.n_rotations, winid, 0)
 	enddef
 
 	def CycleLen(msg: string): number
@@ -802,6 +838,7 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 	def Start(winid: number, msg: string, fixed_prefix: string = '')
 		const id_str = string(winid)
+		this.n_rotations[id_str] = 0
 		this.msgs[id_str] = msg
 		this.prefixes[id_str] = fixed_prefix
 		if !has_key(this.idxs, id_str) | this.idxs[id_str] = 0 | endif
@@ -812,9 +849,16 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 	enddef
 
 	def Schedule(winid: number, after: number)
-		this.active[string(winid)] = timer_start(
+		const id_str = string(winid)
+		this.active[id_str] = timer_start(
 			after,
-			(t) => AnimateCarousel(winid, t)
+			(t) => {
+				const done = this.idxs[id_str] == 0
+				if done 
+					this.n_rotations[id_str] += 1 
+				endif
+				AnimateCarousel(winid, t)
+			}
 		)
 	enddef
 
@@ -856,7 +900,8 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 			)
 		)
 		ApplyHighlight(winid)
-		const end_pause = this.idxs[id_str] == 0 ? GetCarouselEndPause() : 0
+		const done = this.idxs[id_str] == 0
+		const end_pause = done ? GetCarouselEndPause() : 0
 		this.Schedule(winid, end_pause > 0 ? end_pause : GetCarouselInterval())
 	enddef
 endclass
@@ -1053,17 +1098,17 @@ export def Modify(winid: number, in_msg: string, opts: dict<any> = {})
     endif
 enddef
 
-export def Dismiss(winid: number, after: number = 0): number
+export def Dismiss(winid: number, after: number = 0, force: bool = false): number
 	if after == 0
-		NotificationManager.Instance.DismissBy(winid)
+		NotificationManager.Instance.DismissBy(winid, force)
 		return -1
 	else
-		return timer_start(after, (_) => NotificationManager.Instance.DismissBy(winid))
+		return timer_start(after, (_) => NotificationManager.Instance.DismissBy(winid, force))
 	endif
 enddef
 
-export def DismissAll()
-	NotificationManager.Instance.DismissAll()
+export def DismissAll(force: bool = false)
+	NotificationManager.Instance.DismissAll(force)
 enddef
 
 export def HideAll()
@@ -1102,7 +1147,7 @@ export def StopLoading(
 		Modify(winid, final_msg, {frame: frame})
 	endif
 
-	return Dismiss(winid, after)
+	return Dismiss(winid, after, true)
 enddef
 
 export def UpdateLoading(winid: number, new_msg: string)

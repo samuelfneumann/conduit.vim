@@ -1143,7 +1143,9 @@ def OnLine(conn: Connection, line: string)
 	elseif len(ops) == 1 && ops[0] == "put"
 		var local_file = expand(paths[0])
 
-		const PutWarn = () => Warn($"Could not find file {local_file}")
+		const PutWarn = () => {
+			Warn($"Could not find file '{local_file}'")
+		}
 
 		if !filereadable(local_file) && !isdirectory(local_file) # Cannot find path, try fuzzy finding it
 			# Create fuzzy search string
@@ -2356,13 +2358,7 @@ def MakeAnchoredFuzzy(input: string): string
 enddef
 
 def Warn(msg: string)
-	if g:conduit_use_popup
-		notifier.Send($'‹×› {msg}')
-	else
-		echohl NotifyWarning
-		echom msg
-		echohl None
-	endif
+	notifier.Dismiss(notifier.Send($'‹×› {msg}'), GetFailureTimeout())
 enddef
 
 def EchoSuccess(msgs: list<string>)
@@ -3648,7 +3644,7 @@ export def ConduitNotificationCmd(cmd: string)
 	if cmd ==# "history"
 		notifier.ShowHistory()
 	elseif cmd ==# "dismiss"
-		notifier.DismissAll()
+		notifier.DismissAll(true)
 	elseif cmd ==# "hide"
 		notifier.HideAll()
 	elseif cmd ==# "show"
