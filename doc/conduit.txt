@@ -245,7 +245,15 @@ command and terminal that Conduit requires.
 
 :Conduit exit {connection-key}                              *:Conduit-exit*
         Cleanly close the conduit session for {connection-key}, removing
-        remote temporary files and closing the reverse tunnel.
+        remote temporary files and closing the reverse tunnel. The shared SSH
+        ControlMaster stays open so other sessions can continue using it.
+
+:Conduit! exit {connection-key}                        *:Conduit-exit-bang*
+        Clean up the selected session, then send an exit request to its SSH
+        ControlMaster. This closes the shared master and disconnects other
+        sessions using the same control socket, including sessions in other
+        Vim instances. The bang is attached to `:Conduit`; `:Conduit exit!`
+        is not supported.
 
 :Conduit disconnect {connection-key}                        *:Conduit-disconnect*
         Forcefully disconnect the named connection.
@@ -283,7 +291,10 @@ command and terminal that Conduit requires.
         Deprecated in favor of `:Conduit deploy`.
 
 :ConduitExit {host}                                         *:ConduitExit*
-        Deprecated in favor of `:Conduit exit`.
+        Deprecated in favor of |:Conduit-exit|.
+
+:ConduitExit! {host}                                   *:ConduitExit-bang*
+        Deprecated in favor of |:Conduit-exit-bang|.
 
 :ConduitDisconnect {host}                                   *:ConduitDisconnect*
         Deprecated in favor of `:Conduit disconnect`.
