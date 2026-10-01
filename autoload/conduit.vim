@@ -3544,7 +3544,7 @@ export def ConduitExitCmd(host: string, global: bool)
 								err_cb: (_, msg) => err_msgs->add(msg),
 								exit_cb: (job, status) => {
 									ShowConduitExitCmdSuccessMessage(
-										notif, 
+										notif,
 										host,
 										success && status == 0,
 										err_msgs,
