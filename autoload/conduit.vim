@@ -1083,6 +1083,12 @@ def ParseOpsAndPaths(op_path: list<string>): tuple<list<string>, list<string>>
 		endif
 	endfor
 
+	if !empty(ops) && empty(copy(ops)->filter((_, op) => index(modifiers, op) < 0))
+		throw error.Error.ModifierWithoutOp.Format(
+			$'modifier "{ops->join(' ')}" requires an operation such as split, vsplit, or tabedit; use "vim {ops->join(' ')} split FILE"'
+		)
+	endif
+
 	return (ops, paths)
 enddef
 
