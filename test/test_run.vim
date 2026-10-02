@@ -10,6 +10,19 @@ runtime plugin/conduit.vim
 let conduit_source = join(readfile('autoload/conduit.vim'), "\n")
 call assert_match('"arg", "args"', conduit_source)
 
+" Synchronous command errors go to message history without creating popups.
+let parsing_popups_before = len(popup_list())
+for subcommand in ['open', 'exit', 'deploy', 'disconnect', 'source', 'socket', 'stop']
+	messages clear
+	execute 'Conduit ' . subcommand
+	call assert_match('Usage:  Conduit ' . subcommand, execute('messages'))
+endfor
+messages clear
+Conduit invalid
+call assert_match('C014:.*invalid conduit command', execute('messages'))
+call assert_equal(parsing_popups_before, len(popup_list()))
+messages clear
+
 let open_parsed = conduit#ParseConduitOpenArgs('++nodeploy ++hidden testhost')
 call assert_equal(v:true, open_parsed.nodeploy)
 call assert_equal({'hidden': ''}, open_parsed.term_options)
@@ -306,6 +319,33 @@ call setline(1, 'updated remotely')
 write
 call assert_equal(['updated remotely'], readfile($CONDUIT_TEST_UPLOAD))
 call assert_match('testhost:/tmp/main.c', readfile($CONDUIT_TEST_RSYNC)[-1])
+
+" Explicitly requested rsync must fail without falling back to available scp.
+let missing_rsync_path = tempname()
+call mkdir(missing_rsync_path)
+let $CONDUIT_TEST_UNEXPECTED_SCP = tempname()
+call writefile(['#!/bin/sh', 'printf invoked > "$CONDUIT_TEST_UNEXPECTED_SCP"'], missing_rsync_path . '/scp')
+call setfperm(missing_rsync_path . '/scp', 'rwx------')
+let saved_path = $PATH
+let $PATH = missing_rsync_path
+try
+	let g:conduit_use_rsync = v:true
+	call assert_true(executable('scp'))
+	call assert_false(executable('rsync'))
+	let notifications_before_missing_rsync = len(popup_list())
+	call conduit#ConduitRemoteReadCmd()
+	call assert_equal('updated remotely', getline(1))
+	call setline(1, 'unsaved change')
+	call conduit#ConduitRemoteWriteCmd()
+	call assert_true(&modified)
+	call assert_false(filereadable($CONDUIT_TEST_UNEXPECTED_SCP))
+	call assert_equal(notifications_before_missing_rsync + 2, len(popup_list()))
+finally
+	let $PATH = saved_path
+	call setline(1, 'updated remotely')
+	setlocal nomodified
+	call delete(missing_rsync_path, 'rf')
+endtry
 
 let g:conduit_use_rsync = v:false
 Conduit run ++cwd=/tmp testhost echo scp.c:1:1: error: boom
