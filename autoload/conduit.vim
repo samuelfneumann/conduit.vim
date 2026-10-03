@@ -1085,7 +1085,7 @@ def ParseOpsAndPaths(op_path: list<string>): tuple<list<string>, list<string>>
 
 	if !empty(ops) && empty(copy(ops)->filter((_, op) => index(modifiers, op) < 0))
 		throw error.Error.ModifierWithoutOp.Format(
-			$'modifier "{ops->join(' ')}" requires an operation; did you mean "vim {ops->join(' ')} split FILE"?'
+			$'modifier ‹"{ops->join(' ')}"› requires an operation; did you mean ‹"vim {ops->join(' ')} split FILE"›?'
 		)
 	endif
 
