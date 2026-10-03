@@ -5,11 +5,18 @@ import autoload 'error.vim'
 
 # ── Utility Helpers ──────────────────────────────────────────────────────────
 
+# Configuration warnings must not call Warn(), which itself reads the failure timeout.
+def ReportConfigError(msg: string)
+	echohl ErrorMsg
+	echom msg
+	echohl None
+enddef
+
 def GetSuccessTimeout(): number
 	const default = 5000
 	const timeout = get(g:, 'conduit_success_timeout', default)
 	if type(timeout) != v:t_number
-		echoerr "expected g:conduit_success_timeout to be a number"
+		ReportConfigError($"expected g:conduit_success_timeout to be a number; using {default} ms")
 		return default
 	endif
 	return timeout
@@ -19,7 +26,7 @@ def GetFailureTimeout(): number
 	const default = 5000
 	const timeout = get(g:, 'conduit_failure_timeout', default)
 	if type(timeout) != v:t_number
-		echoerr "expected g:conduit_failure_timeout to be a number"
+		ReportConfigError($"expected g:conduit_failure_timeout to be a number; using {default} ms")
 		return default
 	endif
 	return timeout
@@ -29,12 +36,9 @@ def UseRsync(): bool
 	const use_rsync = get(g:, 'conduit_use_rsync', executable('rsync'))
 
 	if use_rsync && !executable('rsync')
-		const msg = error.Error.RsyncScpUnavailable.Format(
+		throw error.Error.RsyncScpUnavailable.Format(
 			'rsync unavailable, set "g:conduit_use_rsync=0" to switch to scp'
 		)
-		notifier.Send($'‹×› {msg}')
-		echoerr msg
-		return false
 	endif
 
 	return use_rsync
@@ -194,7 +198,7 @@ export class Connection
 		return !empty(filter(deepcopy(avaliable_shells), (_, sh) => shell ==# sh))
 	enddef
 
-	def ConduitShellStartupCmd(remote_rc: string, echoerr: bool = false): list<string>
+	def ConduitShellStartupCmd(remote_rc: string, throw_on_error: bool = false): list<string>
 		const shell = this.ParseShellName()
 		if shell ==# 'zsh'
 			const base = fnamemodify(remote_rc, ':h')
@@ -202,8 +206,8 @@ export class Connection
 		elseif shell ==# 'bash' || shell ==# 'sh'
 			return [shell, '--rcfile', remote_rc, '-i']
 		else
-			if echoerr
-				echoerr error.Error.UnsupportedShell.Format($'unsupported shell {shell}')
+			if throw_on_error
+				throw error.Error.UnsupportedShell.Format($'unsupported shell {shell}')
 			endif
 			return []
 		endif
@@ -1647,16 +1651,17 @@ def OpenFiles(conn: Connection, oper: list<string>, remote_paths: list<string>)
 	const op = oper->join(' ')
 	var abs_paths: list<string> = []
 	var targets: list<string> = []
-	for remote_path in remote_paths
-		const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
-		abs_paths->add(abs)
-		targets->add(UseRsync()
-			? (empty(conn.host) ? remote_path : GetRsyncTarget(conn, abs))
-			: (empty(conn.host) ? remote_path : GetScpTarget(conn, abs)))
-	endfor
-
 	try
-		if UseRsync()
+		const use_rsync = UseRsync()
+		for remote_path in remote_paths
+			const abs = remote_path =~# '^/' ? remote_path : '/' .. remote_path
+			abs_paths->add(abs)
+			targets->add(use_rsync
+				? (empty(conn.host) ? remote_path : GetRsyncTarget(conn, abs))
+				: (empty(conn.host) ? remote_path : GetScpTarget(conn, abs)))
+		endfor
+
+		if use_rsync
 			OpenFilesRsync(conn, op, abs_paths, targets)
 		else
 			OpenFilesScp(conn, op, abs_paths, targets)
@@ -1664,7 +1669,7 @@ def OpenFiles(conn: Connection, oper: list<string>, remote_paths: list<string>)
 
 		if g:conduit_verbose | echom $"Conduit(vim/{op}):" op targets->join(' ') | endif
     catch
-		Warn('Failed to open ' .. targets->join(', ') .. ' (error: ' .. v:exception .. ')')
+		Warn('Failed to open ' .. remote_paths->join(', ') .. ' (error: ' .. v:exception .. ')')
     endtry
 enddef
 
@@ -1921,11 +1926,21 @@ def RsyncFiles(
 	# const source_count = len(paths)
 
 	var cmd: list<string>
-	if get
-		cmd = BuildGetCommand(conn, paths, target_path)
-	else
-		cmd = BuildPutCommand(conn, paths, target_path)
-	endif
+	try
+		if get
+			cmd = BuildGetCommand(conn, paths, target_path)
+		else
+			cmd = BuildPutCommand(conn, paths, target_path)
+		endif
+	catch /^C006:/
+		if ErrCb != null && ExitCb != null
+			ErrCb(null_channel, v:exception)
+			ExitCb(null_job, 1)
+		else
+			Warn(v:exception)
+		endif
+		return
+	endtry
 
 	StartTransferJob(
 		conn,
@@ -2349,7 +2364,7 @@ def MultiChoicePrompt(items: list<string>, OnSelect: func(string), header: strin
     if !empty(selected_items)
 		for item in selected_items | OnSelect(expand(item)) | endfor
     else
-        echoerr "No valid matches found for: " .. user_input
+        Warn("No valid matches found for: " .. user_input)
     endif
 enddef
 
@@ -3128,24 +3143,24 @@ export def ConduitRunCmd(bang: bool, raw: string)
 	try
 		parsed = ParseConduitRunArgs(raw, bang)
 	catch
-		Warn(v:exception)
+		EchoError([v:exception])
 		return
 	endtry
 
 	const key = ResolveConnectionKey(parsed.connection)
 	if empty(key)
-		Warn($'No active connection "{parsed.connection}"')
+		EchoError([$'No active connection "{parsed.connection}"'])
 		return
 	endif
 	const conn = connections[key]
 	if conn.ConduitClosed()
-		Warn($'Connection "{key}" is not active')
+		EchoError([$'Connection "{key}" is not active'])
 		return
 	endif
 
 	if bang
 		if !last_runs->has_key(key)
-			Warn($'No previous run for "{key}"')
+			EchoError([$'No previous run for "{key}"'])
 			return
 		endif
 		const previous = last_runs[key]
@@ -3154,7 +3169,7 @@ export def ConduitRunCmd(bang: bool, raw: string)
 					&& task.command ==# previous.command
 					&& (task.resolved_cwd ==# previous.cwd
 						|| task.requested_cwd ==# previous.cwd)
-				Warn($'That task is already running on "{key}"')
+				EchoError([$'That task is already running on "{key}"'])
 				return
 			endif
 		endfor
@@ -3177,7 +3192,7 @@ export def ConduitRunCmd(bang: bool, raw: string)
 				parsed.alias, parsed.alias_args, conn,
 			)
 		catch
-			Warn(v:exception)
+			EchoError([v:exception])
 			return
 		endtry
 	endif
@@ -3278,12 +3293,12 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		parsed = ParseConduitOpenArgs(args)
 	catch
-		Warn(v:exception)
+		EchoError([v:exception])
 		notifier.Dismiss(notif)
 		return
 	endtry
 	if deploy_only && parsed.nodeploy
-		Warn(error.Error.InvalidConduitOption.Format('++nodeploy is only valid with Conduit open'))
+		EchoError([error.Error.InvalidConduitOption.Format('++nodeploy is only valid with Conduit open')])
 		notifier.Dismiss(notif)
 		return
 	endif
@@ -3298,7 +3313,7 @@ export def ConduitOpenCmd(deploy_only: bool, curwin: bool, mods: string, args: s
 	try
 		conn = MaybeAddEmptyConnection(host, port, ssh_options)
 	catch /E1013/
-        Warn($'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]')
+        EchoError([$'Usage:  {prefix} [+SHORTOPT|++LONGOPT ...] [user@]host[:port]'])
 		notifier.Dismiss(notif)
 		return
 	endtry
@@ -3734,28 +3749,28 @@ def ConduitCmdList(deploy_only: bool, bang: bool, mods: string, args: list<strin
 
 	if cmd ==# "open" # :Conduit open HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit open [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"
+			EchoError(["Usage:  Conduit open [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"])
 		else
 			ConduitOpenCmd(deploy_only, curwin, mods, cmd_args)
 		endif
 
 	elseif cmd ==# "exit" # :Conduit exit HOST
 		if len(args) != 2
-			echoerr "Usage:  Conduit exit [connection-key]"
+			EchoError(["Usage:  Conduit exit [connection-key]"])
 		else
 			ConduitExitCmd(cmd_args, bang)
 		endif
 
 	elseif cmd ==# "deploy" # :Conduit deploy HOST
 		if len(args) < 2
-			echoerr "Usage:  Conduit deploy [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"
+			EchoError(["Usage:  Conduit deploy [+SHORTOPT|++LONGOPT ...] [user@]host[:port]"])
 		else
 			ConduitOpenCmd(true, false, '', cmd_args)
 		endif
 
 	elseif cmd ==# "disconnect" # :Conduit disconnect HOST
 		if len(args) != 2
-			echoerr "Usage:  Conduit disconnect [connection-key]"
+			EchoError(["Usage:  Conduit disconnect [connection-key]"])
 		else
 			ConduitDisconnectCmd(args[1])
 		endif
@@ -3765,7 +3780,7 @@ def ConduitCmdList(deploy_only: bool, bang: bool, mods: string, args: list<strin
 		const name_only = index(source_args, '++nameonly') >= 0
 		const hosts = copy(source_args)->filter((_, value) => value !=# '++nameonly')
 		if len(hosts) != 1 || len(source_args) != len(hosts) + (name_only ? 1 : 0)
-			echoerr "Usage:  Conduit source [++nameonly] [connection-key]"
+			EchoError(["Usage:  Conduit source [++nameonly] [connection-key]"])
 		else
 			ConduitCopySourceCmd(hosts[0], name_only)
 		endif
@@ -3775,21 +3790,21 @@ def ConduitCmdList(deploy_only: bool, bang: bool, mods: string, args: list<strin
 
 	elseif cmd ==# "socket" # :Conduit socket HOST
 		if len(args) != 2
-			echoerr "Usage:  Conduit socket [connection-key]"
+			EchoError(["Usage:  Conduit socket [connection-key]"])
 		else
 			ConduitSocketCmd(args[1])
 		endif
 
 	elseif cmd ==# "stop" # :Conduit stop OP HOST PATTERN
 		if len(args) != 4
-			echoerr "Usage:  Conduit stop op [connection-key] pattern"
+			EchoError(["Usage:  Conduit stop op [connection-key] pattern"])
 		else
 			ConduitStopCmd(args[1], args[2 :])
 		endif
 	else
-		echoerr error.Error.InvalidConduitCommand.Format(
+		EchoError([error.Error.InvalidConduitCommand.Format(
 			"invalid conduit command"
-		)
+		)])
 	endif
 enddef
 
