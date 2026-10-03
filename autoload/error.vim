@@ -20,7 +20,8 @@ export enum Error
 	MissingNotifierOptionKey("C017"),
 	InvalidNotificationId("C018"),
 	UnsupportedShell("C019"),
-	Misc("C020")
+	Misc("C020"),
+	ModifierWithoutOp("C021")
 
 	const code: string
 

@@ -534,6 +534,7 @@ InitProp("notify_success", "NotifySuccess", 10)
 InitProp("notify_error", "NotifyError", 10)
 InitProp("notify_warning", "NotifyWarning", 10)
 InitProp("notify_info", "NotifyInfo", 10)
+InitProp("notify_string", "String", 10)
 InitProp("notify_prefix", "NotifyPrefix")
 InitProp("notify_subprefix", "NotifySubPrefix")
 InitProp("notify_progress_bar", "NotifyProgressBar")
@@ -704,7 +705,44 @@ def AddHistoryNotificationHighlights(
 	endif
 enddef
 
+def QuotedStringChars(text: string): list<bool>
+	var chars = repeat([false], strcharlen(text))
+	# Include the quotes, but leave the concealed markers outside the property.
+	for pattern in ['‹\zs"\%(\\.\|[^"\\‹›]\)*"\ze›', "‹\\zs'\\%(\\\\.\\|[^'\\\\‹›]\\)*'\\ze›"]
+		var offset = 0
+		while offset < strlen(text)
+			const matched = matchstrpos(text, pattern, offset)
+			if matched[1] == -1 | break | endif
+			const start = strcharlen(strpart(text, 0, matched[1]))
+			const end = strcharlen(strpart(text, 0, matched[2]))
+			for i in range(start, end - 1)
+				chars[i] = true
+			endfor
+			offset = matched[2]
+		endwhile
+	endfor
+	return chars
+enddef
+
+def AddQuotedStringHighlights(bufnr: number, linenr: number, text: string, source: string, columns: list<number>)
+	const chars = QuotedStringChars(source)
+	var start = -1
+	for i in range(len(columns))
+		const highlighted = columns[i] >= 0 && columns[i] < len(chars) && chars[columns[i]]
+		if highlighted && start == -1
+			start = i
+		elseif !highlighted && start != -1
+			AddHighlightChars(bufnr, linenr, text, start, i, "notify_string")
+			start = -1
+		endif
+	endfor
+	if start != -1
+		AddHighlightChars(bufnr, linenr, text, start, len(columns), "notify_string")
+	endif
+enddef
+
 def AddMarkedSymbolHighlights(bufnr: number, linenr: number, text: string)
+
 	const symbols = [
 		[checkmark, "notify_success"],
 		[xmark, "notify_error"],
@@ -801,6 +839,24 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 	def GetRotations(winid: number): number
 		return get(this.n_rotations, winid, 0)
+	enddef
+
+	def SourceColumns(winid: number, count: number, prefix_len: number, msg_len: number): list<number>
+		const idx = get(this.idxs, string(winid), 0)
+		var columns: list<number> = []
+		for i in range(count)
+			if i < prefix_len
+				columns->add(i)
+			else
+				const body_char = (idx + i - prefix_len) % (msg_len + 3)
+				columns->add(body_char < msg_len ? prefix_len + body_char : -1)
+			endif
+		endfor
+		return columns
+	enddef
+
+	def HasFrame(winid: number): bool
+		return has_key(this.idxs, string(winid))
 	enddef
 
 	def CycleLen(msg: string): number
@@ -968,6 +1024,20 @@ def ApplyHighlight(winid: number, linenr: number=1)
 	AddFrameHighlight(winid, bufnr, linenr, text)
 	AddPrefixHighlights(winid, bufnr, linenr, text)
 	AddMarkedSymbolHighlights(bufnr, linenr, text)
+	const notif = NotificationManager.Instance.GetNotificationBy(winid)
+	const prefix = notif.FixedPrefix()
+	const msg = notif.Message()
+	var columns = range(strcharlen(text))
+	if carousel_text_strategy.HasFrame(winid)
+		columns = carousel_text_strategy.SourceColumns(winid, strcharlen(text), strcharlen(prefix), strcharlen(msg))
+	elseif GetOverflowMode() !=# 'wrap' && strcharlen(prefix .. msg) > GetMaxWidth()
+		# The truncation suffix is generated text, rather than part of the string.
+		const suffix_len = has('multi_byte') ? 1 : (GetMaxWidth() > 3 ? 3 : 0)
+		for i in range(len(columns) - suffix_len, len(columns) - 1)
+			columns[i] = -1
+		endfor
+	endif
+	AddQuotedStringHighlights(bufnr, linenr, text, prefix .. msg, columns)
 
 enddef
 
@@ -1241,6 +1311,7 @@ export def ShowHistory()
 		prop_clear(l + 1, 1, {bufnr: bufnr})
 		AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
 		AddMarkedSymbolHighlights(bufnr, l + 1, text)
+		AddQuotedStringHighlights(bufnr, l + 1, text, text, range(strcharlen(text)))
 	endfor
 	setlocal readonly nomodifiable
 	

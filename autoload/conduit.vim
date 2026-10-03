@@ -1083,6 +1083,12 @@ def ParseOpsAndPaths(op_path: list<string>): tuple<list<string>, list<string>>
 		endif
 	endfor
 
+	if !empty(ops) && empty(copy(ops)->filter((_, op) => index(modifiers, op) < 0))
+		throw error.Error.ModifierWithoutOp.Format(
+			$'modifier ‹"{ops->join(' ')}"› requires an operation; did you mean ‹"vim {ops->join(' ')} split FILE"›?'
+		)
+	endif
+
 	return (ops, paths)
 enddef
 
@@ -1095,7 +1101,14 @@ def OnLine(conn: Connection, line: string)
 		)
 	endif
 
-	var [ops, paths] = ParseOpsAndPaths(op_path)
+	var ops: list<string>
+	var paths: list<string>
+	try
+		[ops, paths] = ParseOpsAndPaths(op_path)
+	catch /^C021:/
+		Warn(v:exception)
+		return
+	endtry
 	const host = conn.host
 
 	if empty(paths) | return | endif
