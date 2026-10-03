@@ -413,7 +413,7 @@ class NotificationManager
 		if this.IsActiveBy(winid) 
 			const is_carouselling = carousel_text_strategy.IsCarouselling(winid)
 			const n = get(g:, 'conduit_notifier_n_rotations_before_auto_dismiss', 1)
-			const rot_okay = carousel_text_strategy.GetRotations(winid) >= n
+			const rot_okay = carousel_text_strategy.GetRotations(winid) > n
 			if (!is_carouselling) || (is_carouselling && rot_okay)
 				popup_close(winid)
 				this.RemoveBy(winid)
