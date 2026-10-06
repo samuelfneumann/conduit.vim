@@ -413,7 +413,7 @@ class NotificationManager
 		if this.IsActiveBy(winid) 
 			const is_carouselling = carousel_text_strategy.IsCarouselling(winid)
 			const n = get(g:, 'conduit_notifier_n_rotations_before_auto_dismiss', 1)
-			const rot_okay = carousel_text_strategy.GetRotations(winid) > n
+			const rot_okay = carousel_text_strategy.GetRotations(winid) >= n
 			if (!is_carouselling) || (is_carouselling && rot_okay)
 				popup_close(winid)
 				this.RemoveBy(winid)
@@ -894,7 +894,11 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 	def Start(winid: number, msg: string, fixed_prefix: string = '')
 		const id_str = string(winid)
-		this.n_rotations[id_str] = 0
+		# Spinner/frame refreshes must not restart the message's cycle count.
+		if !has_key(this.msgs, id_str) || this.msgs[id_str] !=# msg
+			this.n_rotations[id_str] = 0
+			this.idxs[id_str] = 0
+		endif
 		this.msgs[id_str] = msg
 		this.prefixes[id_str] = fixed_prefix
 		if !has_key(this.idxs, id_str) | this.idxs[id_str] = 0 | endif
@@ -908,13 +912,7 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		const id_str = string(winid)
 		this.active[id_str] = timer_start(
 			after,
-			(t) => {
-				const done = this.idxs[id_str] == 0
-				if done 
-					this.n_rotations[id_str] += 1 
-				endif
-				AnimateCarousel(winid, t)
-			}
+			(t) => AnimateCarousel(winid, t)
 		)
 	enddef
 
@@ -927,6 +925,7 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		if has_key(this.msgs, id_str) | remove(this.msgs, id_str) | endif
 		if has_key(this.prefixes, id_str) | remove(this.prefixes, id_str) | endif
 		if has_key(this.idxs, id_str) | remove(this.idxs, id_str) | endif
+		if has_key(this.n_rotations, id_str) | remove(this.n_rotations, id_str) | endif
 	enddef
 
 	def Animate(winid: number, timer_id: number)
@@ -942,10 +941,16 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 		const msg = this.msgs[id_str]
 		const idx = this.idxs[id_str]
-		const is_marker = msg[idx] == left_marker || msg[idx] == right_marker
+		const char = strcharpart(msg, idx, 1)
+		const is_marker = char == left_marker || char == right_marker
 		const step = is_marker ? 2 : 1
 
-		this.idxs[id_str] = (this.idxs[id_str] + step) % this.CycleLen(this.msgs[id_str])
+		const cycle_len = this.CycleLen(msg)
+		const done = idx + step >= cycle_len
+		this.idxs[id_str] = (idx + step) % cycle_len
+		if done
+			this.n_rotations[id_str] += 1
+		endif
 
 		popup_settext(
 			winid,
@@ -956,7 +961,6 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 			)
 		)
 		ApplyHighlight(winid)
-		const done = this.idxs[id_str] == 0
 		const end_pause = done ? GetCarouselEndPause() : 0
 		this.Schedule(winid, end_pause > 0 ? end_pause : GetCarouselInterval())
 	enddef
