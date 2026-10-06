@@ -27,6 +27,7 @@ var border_chars: list<string> = get(
 )
 
 export var position: string = "top-right"
+var history_buffers: list<number> = []
 
 # Spinner State Tracking
 var spinner_frames: list<string>
@@ -314,6 +315,7 @@ class NotificationManager
 		for i in range(len(this.history))
 			if this.history[i].winid == winid
 				this.history[i] = NotificationHistoryEntry.new(this.history[i].timestamp, notif)
+				RefreshHistoryBuffers()
 				return
 			endif
 		endfor
@@ -329,6 +331,7 @@ class NotificationManager
         if len(this.history) > this.history_limit
             remove(this.history, 0)
         endif
+		RefreshHistoryBuffers()
 	enddef
 
 	def GetHistory(): list<string>
@@ -1298,24 +1301,51 @@ export def UpdateProgress(
 	SetDisplayText(pbar.winid, pbar.Message(), true, true, pbar.FixedPrefix())
 enddef
 
-# Opens a scratch buffer displaying past notifications
-export def ShowHistory()
-    if empty(NotificationManager.Instance.GetHistory())
-        echo "No notifications in history."
-        return
-    endif
-    
-    # Open a 10-line split at the bottom
-    execute('botright :10new')
-    setlocal buftype=nofile bufhidden=wipe noswapfile
-	setlocal filetype=conduit-notifications 
-	setlocal concealcursor=nvic
+def RenderHistory(bufnr: number)
 	const entries = NotificationManager.Instance.GetHistoryEntries()
 	var lines: list<string> = []
 	for entry in entries
 		lines->add(entry.text)
 	endfor
-	setline(1, lines)
+	setbufvar(bufnr, '&readonly', false)
+	setbufvar(bufnr, '&modifiable', true)
+	try
+		setbufline(bufnr, 1, lines)
+		if len(getbufline(bufnr, 1, '$')) > len(lines)
+			deletebufline(bufnr, len(lines) + 1, '$')
+		endif
+		prop_clear(1, len(lines), {bufnr: bufnr})
+		for l in range(len(entries))
+			const text = lines[l]
+			AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
+			AddMarkedSymbolHighlights(bufnr, l + 1, text)
+			AddQuotedStringHighlights(bufnr, l + 1, text, text, range(strcharlen(text)))
+		endfor
+	finally
+		setbufvar(bufnr, '&modified', false)
+		setbufvar(bufnr, '&readonly', true)
+		setbufvar(bufnr, '&modifiable', false)
+	endtry
+enddef
+
+def RefreshHistoryBuffers()
+	history_buffers->filter((_, bufnr) => bufexists(bufnr))
+	for bufnr in history_buffers
+		RenderHistory(bufnr)
+	endfor
+enddef
+
+# Opens a scratch buffer displaying current and past notifications.
+export def ShowHistory()
+    if empty(NotificationManager.Instance.GetHistory())
+        echo "No notifications in history."
+        return
+    endif
+
+    execute('botright :10new')
+    setlocal buftype=nofile bufhidden=wipe noswapfile
+	setlocal filetype=conduit-notifications
+	setlocal concealcursor=nvic
 	ConcealHighlightMarkers(win_getid())
 
 	# Highlight the timestamps before applying notification properties. The
@@ -1324,16 +1354,8 @@ export def ShowHistory()
 	syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
 	hi def link NotifyTime Comment
 
-	const history_winid = win_getid()
-	for l in range(len(entries))
-		const bufnr = winbufnr(history_winid)
-		const text = getbufline(bufnr, l + 1)[0]
-		prop_clear(l + 1, 1, {bufnr: bufnr})
-		AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
-		AddMarkedSymbolHighlights(bufnr, l + 1, text)
-		AddQuotedStringHighlights(bufnr, l + 1, text, text, range(strcharlen(text)))
-	endfor
-	setlocal readonly nomodifiable
+	history_buffers->add(bufnr())
+	RenderHistory(bufnr())
 	
 	# Press 'q' to quickly close the history buffer
     nnoremap <buffer> <silent> q :bwipeout<CR>

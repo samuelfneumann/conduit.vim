@@ -13,7 +13,24 @@ let notification = notifier#Send('full notification text', {'prefix': 'initial'}
 let initial = HistoryLines()
 call assert_equal(1, len(initial))
 call assert_match('initial full notification text$', initial[0])
+call notifier#ShowHistory()
+let first_history = bufnr()
+call notifier#ShowHistory()
+let second_history = bufnr()
+let history_window = win_getid()
 call notifier#Modify(notification, 'updated full text', {'prefix': 'changed', 'subprefix': 'detail'})
+call assert_equal(history_window, win_getid())
+for history_buffer in [first_history, second_history]
+  call assert_match('changed detail updated full text$', getbufline(history_buffer, 1)[0])
+  call assert_false(getbufvar(history_buffer, '&modifiable'))
+  call assert_true(getbufvar(history_buffer, '&readonly'))
+  call assert_false(getbufvar(history_buffer, '&modified'))
+  let prefixes = filter(prop_list(1, {'bufnr': history_buffer}), 'v:val.type ==# "notify_prefix"')
+  call assert_equal(1, len(prefixes))
+  call assert_equal(strlen('changed'), prefixes[0].length)
+endfor
+bwipeout!
+execute 'bwipeout! ' . first_history
 let updated = HistoryLines()
 call assert_equal(1, len(updated))
 call assert_equal(strpart(initial[0], 0, 10), strpart(updated[0], 0, 10))
@@ -38,6 +55,8 @@ call assert_equal(3, len(HistoryLines()))
 
 " Retention stays bounded, including when an evicted active entry changes.
 let oldest = notifier#Send('oldest')
+call notifier#ShowHistory()
+let retained_buffer = bufnr()
 for i in range(101)
   let id = notifier#Send('entry ' . i)
   call notifier#Dismiss(id, 0, v:true)
@@ -47,6 +66,8 @@ let retained = HistoryLines()
 call assert_equal(100, len(retained))
 call assert_match('entry 1$', retained[0])
 call assert_match('entry 100$', retained[-1])
+call assert_equal(retained, getbufline(retained_buffer, 1, '$'))
+execute 'bwipeout! ' . retained_buffer
 call notifier#Dismiss(oldest, 0, v:true)
 call assert_equal(retained, HistoryLines())
 
