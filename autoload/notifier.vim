@@ -271,6 +271,8 @@ class Basic extends Notification
 endclass
 
 class NotificationHistoryEntry
+	const winid: number
+	const timestamp: string
 	const text: string
 	const kind: NotificationKind
 	const frame_len: number
@@ -278,8 +280,10 @@ class NotificationHistoryEntry
 	const prefix: string
 	const subprefix: string
 
-	def new(text: string, notif: Notification)
-		this.text = text
+	def new(timestamp: string, notif: Notification)
+		this.winid = notif.winid
+		this.timestamp = timestamp
+		this.text = printf("[%s] %s", timestamp, notif.Formatted())
 		this.kind = notif.Kind()
 		this.frame_len = strcharlen(notif.Frame())
 		this.fixed_prefix = notif.FixedPrefix()
@@ -298,17 +302,26 @@ class NotificationManager
 
 	# History Tracking
 	var history: list<NotificationHistoryEntry> = []
+	var history_logged: dict<bool> = {}
 	const time_format = "%H:%M:%S"
 	var history_limit: number = 100
 
 	def new()
 	enddef
 	
-	def LogHistory(winid: number)
+	def UpdateHistory(winid: number)
 		const notif = this.GetNotificationBy(winid)
-		const time_str = strftime(this.time_format)
+		for i in range(len(this.history))
+			if this.history[i].winid == winid
+				this.history[i] = NotificationHistoryEntry.new(this.history[i].timestamp, notif)
+				return
+			endif
+		endfor
+		# An evicted entry must not reappear when its active popup is modified.
+		if has_key(this.history_logged, string(winid)) | return | endif
+		this.history_logged[string(winid)] = true
 		add(this.history, NotificationHistoryEntry.new(
-			printf("[%s] %s", time_str, notif.Formatted()),
+			strftime(this.time_format),
 			notif,
 		))
 
@@ -393,6 +406,7 @@ class NotificationManager
 
 	def RemoveBy(winid: number)
 		const id_str = string(winid)
+		if has_key(this.history_logged, id_str) | remove(this.history_logged, id_str) | endif
 		const idx = index(this.active_notifs, winid)
 		if idx > -1
 			remove(this.active_notifs, idx)
@@ -1011,6 +1025,9 @@ def SetDisplayText(
 	if update_positions
 		NotificationManager.Instance.UpdatePositions()
 	endif
+	if update_history
+		NotificationManager.Instance.UpdateHistory(winid)
+	endif
 enddef
 
 def ApplyHighlight(winid: number, linenr: number=1)
@@ -1052,7 +1069,6 @@ def OnPopupClose(winid: number, result: any)
     # Remove from active list and restack
 	const is_active = NotificationManager.Instance.IsActiveBy(winid)
     if is_active
-		NotificationManager.Instance.LogHistory(winid)
 		NotificationManager.Instance.GetNotificationBy(winid).Stop()
 		NotificationManager.Instance.RemoveBy(winid)
 		NotificationManager.Instance.UpdatePositions()
