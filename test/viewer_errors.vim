@@ -22,7 +22,9 @@ try
   call assert_equal('dead', job_status(viewer))
   let warnings = map(popup_list(), 'join(getbufline(winbufnr(v:val), 1, "$"), " ")')
   call assert_equal(1, len(warnings))
-  call assert_match('/remote/example.png.*exit 7.*viewer could not decode image', join(warnings))
+  call assert_match('\[open\].*failed (error: 7)', join(warnings))
+  call assert_match('/remote/example.png', join(warnings))
+  call assert_match('viewer could not decode image', join(warnings))
   call notifier#DismissAll(v:true)
 
   " Exit failures without stderr still report the exit code.
@@ -31,7 +33,8 @@ try
   sleep 300m
   let warnings = map(popup_list(), 'join(getbufline(winbufnr(v:val), 1, "$"), " ")')
   call assert_equal(1, len(warnings))
-  call assert_match('/remote/example.png.*exit 3', join(warnings))
+  call assert_match('\[open\].*failed (error: 3)', join(warnings))
+  call assert_match('/remote/example.png', join(warnings))
   call notifier#DismissAll(v:true)
 
   " Successful viewers may write diagnostics without producing a warning.
