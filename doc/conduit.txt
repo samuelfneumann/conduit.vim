@@ -412,7 +412,12 @@ g:conduit_connection_attempts			    *g:conduit_connection_attempts*
 g:conduit_echo_socket				    *g:conduit_echo_socket*
 	Use `echom` for the `:Conduit socket` command, rather than displaying
 	in a notification.
-        Default: false
+        Default: true
+
+g:conduit_echo_source				    *g:conduit_echo_source*
+	Use `echom` for the `:Conduit source` command, rather than displaying
+	in a notification.
+        Default: true
 
 g:conduit_run_auto_open_quickfix             *g:conduit_run_auto_open_quickfix*
         When true, run `:cwindow` after the current remote task completes,

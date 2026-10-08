@@ -3672,25 +3672,39 @@ export def ConduitCopySourceCmd(host: string, name_only: bool = false)
 		const source_text = name_only
 			? conn.GetRemoteRCPath()
 			: $"source {conn.GetRemoteRCPath()}"
-		echom source_text
+
+		if get(g:, 'conduit_echo_source', true)
+			echom source_text
+		else
+			notifier.Dismiss(notifier.Send(source_text, {prefix: '[source]'}), GetSuccessTimeout())
+		endif
+
 		@+ = source_text
 	else
-        Warn($'No host "{host}"')
+		if get(g:, 'conduit_echo_source', true)
+			EchoError([$'No host "{host}"'])
+		else
+			Warn($'No host "{host}"')
+		endif
 	endif
 enddef
 
 export def ConduitSocketCmd(host: string)
 	const key = ResolveConnectionKey(host)
 	if empty(key)
-		Warn($'No host "{host}"')
+		if get(g:, 'conduit_echo_source', true)
+			EchoError([$'No host "{host}"'])
+		else
+			Warn($'No host "{host}"')
+		endif
 		return
 	endif
 
 	const conn = connections[key]
-	if get(g:, 'conduit_echo_socket', false)
-		echom $'[socket] {key} → {conn.GetConduitControlPath()}'
+	if get(g:, 'conduit_echo_socket', true)
+		echom conn.GetConduitControlPath()
 	else
-		notifier.Send($'{key} ‹→› {conn.GetConduitControlPath()}', {prefix: '[socket]'})
+		notifier.Dismiss(notifier.Send($'{key} ‹→› {conn.GetConduitControlPath()}', {prefix: '[socket]'}), GetSuccessTimeout())
 	endif
 enddef
 
