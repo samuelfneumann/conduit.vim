@@ -1174,7 +1174,6 @@ def OnLine(conn: Connection, line: string)
 				find_cmd = $'{exec} --max-depth {g:conduit_put_max_depth} --full-path --ignore-case --path-separator / "{fuzzy_pattern}" .'
 			elseif executable('find')
 				# For standard find, we use -ipath with wildcards
-				var find_pattern = $'*{local_file.split("")->join("*")}*'
 				find_cmd = $'find . -maxdepth {g:conduit_put_max_depth} -ipath "{fuzzy_pattern}"'
 			endif
 
@@ -3033,9 +3032,10 @@ def ResolveCompilerErrorFormat(name: string): string
 
 	const original_compiler = get(b:, 'current_compiler', '')
 	const original_efm = &l:errorformat
+	var compiler_efm: string
 	try
 		execute 'compiler ' .. name
-		return &l:errorformat
+		compiler_efm = &l:errorformat
 	finally
 		if empty(original_compiler)
 			unlet! b:current_compiler
@@ -3044,7 +3044,7 @@ def ResolveCompilerErrorFormat(name: string): string
 		endif
 		&l:errorformat = original_efm
 	endtry
-	return ''
+	return compiler_efm
 enddef
 
 def AliasArgumentCountValid(nargs: any, count: number): bool
