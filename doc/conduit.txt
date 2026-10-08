@@ -598,7 +598,13 @@ You can view the notification history using
 
 `:Conduit notifications history`
 
-or dismiss all active notifications using
+History includes full notification text as soon as it is shown. Message,
+prefix, and progress updates replace the same entry, preserving its original
+timestamp. Open history windows refresh automatically; spinner animation does
+not update history. Dismissed notifications remain in history, up to the most
+recent 100 entries.
+
+You can dismiss all active notifications using
 
 `:Conduit notifications dismiss`
 

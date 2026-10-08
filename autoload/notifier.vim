@@ -27,6 +27,7 @@ var border_chars: list<string> = get(
 )
 
 export var position: string = "top-right"
+var history_buffers: list<number> = []
 
 # Spinner State Tracking
 var spinner_frames: list<string>
@@ -271,6 +272,8 @@ class Basic extends Notification
 endclass
 
 class NotificationHistoryEntry
+	const winid: number
+	const timestamp: string
 	const text: string
 	const kind: NotificationKind
 	const frame_len: number
@@ -278,8 +281,10 @@ class NotificationHistoryEntry
 	const prefix: string
 	const subprefix: string
 
-	def new(text: string, notif: Notification)
-		this.text = text
+	def new(timestamp: string, notif: Notification)
+		this.winid = notif.winid
+		this.timestamp = timestamp
+		this.text = printf("[%s] %s", timestamp, notif.Formatted())
 		this.kind = notif.Kind()
 		this.frame_len = strcharlen(notif.Frame())
 		this.fixed_prefix = notif.FixedPrefix()
@@ -298,17 +303,27 @@ class NotificationManager
 
 	# History Tracking
 	var history: list<NotificationHistoryEntry> = []
+	var history_logged: dict<bool> = {}
 	const time_format = "%H:%M:%S"
 	var history_limit: number = 100
 
 	def new()
 	enddef
 	
-	def LogHistory(winid: number)
+	def UpdateHistory(winid: number)
 		const notif = this.GetNotificationBy(winid)
-		const time_str = strftime(this.time_format)
+		for i in range(len(this.history))
+			if this.history[i].winid == winid
+				this.history[i] = NotificationHistoryEntry.new(this.history[i].timestamp, notif)
+				RefreshHistoryBuffers()
+				return
+			endif
+		endfor
+		# An evicted entry must not reappear when its active popup is modified.
+		if has_key(this.history_logged, string(winid)) | return | endif
+		this.history_logged[string(winid)] = true
 		add(this.history, NotificationHistoryEntry.new(
-			printf("[%s] %s", time_str, notif.Formatted()),
+			strftime(this.time_format),
 			notif,
 		))
 
@@ -316,6 +331,7 @@ class NotificationManager
         if len(this.history) > this.history_limit
             remove(this.history, 0)
         endif
+		RefreshHistoryBuffers()
 	enddef
 
 	def GetHistory(): list<string>
@@ -393,6 +409,7 @@ class NotificationManager
 
 	def RemoveBy(winid: number)
 		const id_str = string(winid)
+		if has_key(this.history_logged, id_str) | remove(this.history_logged, id_str) | endif
 		const idx = index(this.active_notifs, winid)
 		if idx > -1
 			remove(this.active_notifs, idx)
@@ -413,7 +430,7 @@ class NotificationManager
 		if this.IsActiveBy(winid) 
 			const is_carouselling = carousel_text_strategy.IsCarouselling(winid)
 			const n = get(g:, 'conduit_notifier_n_rotations_before_auto_dismiss', 1)
-			const rot_okay = carousel_text_strategy.GetRotations(winid) > n
+			const rot_okay = carousel_text_strategy.GetRotations(winid) >= n
 			if (!is_carouselling) || (is_carouselling && rot_okay)
 				popup_close(winid)
 				this.RemoveBy(winid)
@@ -894,7 +911,11 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 	def Start(winid: number, msg: string, fixed_prefix: string = '')
 		const id_str = string(winid)
-		this.n_rotations[id_str] = 0
+		# Spinner/frame refreshes must not restart the message's cycle count.
+		if !has_key(this.msgs, id_str) || this.msgs[id_str] !=# msg
+			this.n_rotations[id_str] = 0
+			this.idxs[id_str] = 0
+		endif
 		this.msgs[id_str] = msg
 		this.prefixes[id_str] = fixed_prefix
 		if !has_key(this.idxs, id_str) | this.idxs[id_str] = 0 | endif
@@ -908,13 +929,7 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		const id_str = string(winid)
 		this.active[id_str] = timer_start(
 			after,
-			(t) => {
-				const done = this.idxs[id_str] == 0
-				if done 
-					this.n_rotations[id_str] += 1 
-				endif
-				AnimateCarousel(winid, t)
-			}
+			(t) => AnimateCarousel(winid, t)
 		)
 	enddef
 
@@ -927,6 +942,7 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 		if has_key(this.msgs, id_str) | remove(this.msgs, id_str) | endif
 		if has_key(this.prefixes, id_str) | remove(this.prefixes, id_str) | endif
 		if has_key(this.idxs, id_str) | remove(this.idxs, id_str) | endif
+		if has_key(this.n_rotations, id_str) | remove(this.n_rotations, id_str) | endif
 	enddef
 
 	def Animate(winid: number, timer_id: number)
@@ -942,10 +958,16 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 
 		const msg = this.msgs[id_str]
 		const idx = this.idxs[id_str]
-		const is_marker = msg[idx] == left_marker || msg[idx] == right_marker
+		const char = strcharpart(msg, idx, 1)
+		const is_marker = char == left_marker || char == right_marker
 		const step = is_marker ? 2 : 1
 
-		this.idxs[id_str] = (this.idxs[id_str] + step) % this.CycleLen(this.msgs[id_str])
+		const cycle_len = this.CycleLen(msg)
+		const done = idx + step >= cycle_len
+		this.idxs[id_str] = (idx + step) % cycle_len
+		if done
+			this.n_rotations[id_str] += 1
+		endif
 
 		popup_settext(
 			winid,
@@ -956,7 +978,6 @@ class CarouselNotificationTextStrategy extends NotificationTextStrategy
 			)
 		)
 		ApplyHighlight(winid)
-		const done = this.idxs[id_str] == 0
 		const end_pause = done ? GetCarouselEndPause() : 0
 		this.Schedule(winid, end_pause > 0 ? end_pause : GetCarouselInterval())
 	enddef
@@ -1007,6 +1028,9 @@ def SetDisplayText(
 	if update_positions
 		NotificationManager.Instance.UpdatePositions()
 	endif
+	if update_history
+		NotificationManager.Instance.UpdateHistory(winid)
+	endif
 enddef
 
 def ApplyHighlight(winid: number, linenr: number=1)
@@ -1048,7 +1072,6 @@ def OnPopupClose(winid: number, result: any)
     # Remove from active list and restack
 	const is_active = NotificationManager.Instance.IsActiveBy(winid)
     if is_active
-		NotificationManager.Instance.LogHistory(winid)
 		NotificationManager.Instance.GetNotificationBy(winid).Stop()
 		NotificationManager.Instance.RemoveBy(winid)
 		NotificationManager.Instance.UpdatePositions()
@@ -1278,24 +1301,51 @@ export def UpdateProgress(
 	SetDisplayText(pbar.winid, pbar.Message(), true, true, pbar.FixedPrefix())
 enddef
 
-# Opens a scratch buffer displaying past notifications
-export def ShowHistory()
-    if empty(NotificationManager.Instance.GetHistory())
-        echo "No notifications in history."
-        return
-    endif
-    
-    # Open a 10-line split at the bottom
-    execute('botright :10new')
-    setlocal buftype=nofile bufhidden=wipe noswapfile
-	setlocal filetype=conduit-notifications 
-	setlocal concealcursor=nvic
+def RenderHistory(bufnr: number)
 	const entries = NotificationManager.Instance.GetHistoryEntries()
 	var lines: list<string> = []
 	for entry in entries
 		lines->add(entry.text)
 	endfor
-	setline(1, lines)
+	setbufvar(bufnr, '&readonly', false)
+	setbufvar(bufnr, '&modifiable', true)
+	try
+		setbufline(bufnr, 1, lines)
+		if len(getbufline(bufnr, 1, '$')) > len(lines)
+			deletebufline(bufnr, len(lines) + 1, '$')
+		endif
+		prop_clear(1, len(lines), {bufnr: bufnr})
+		for l in range(len(entries))
+			const text = lines[l]
+			AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
+			AddMarkedSymbolHighlights(bufnr, l + 1, text)
+			AddQuotedStringHighlights(bufnr, l + 1, text, text, range(strcharlen(text)))
+		endfor
+	finally
+		setbufvar(bufnr, '&modified', false)
+		setbufvar(bufnr, '&readonly', true)
+		setbufvar(bufnr, '&modifiable', false)
+	endtry
+enddef
+
+def RefreshHistoryBuffers()
+	history_buffers->filter((_, bufnr) => bufexists(bufnr))
+	for bufnr in history_buffers
+		RenderHistory(bufnr)
+	endfor
+enddef
+
+# Opens a scratch buffer displaying current and past notifications.
+export def ShowHistory()
+    if empty(NotificationManager.Instance.GetHistory())
+        echo "No notifications in history."
+        return
+    endif
+
+    execute('botright :10new')
+    setlocal buftype=nofile bufhidden=wipe noswapfile
+	setlocal filetype=conduit-notifications
+	setlocal concealcursor=nvic
 	ConcealHighlightMarkers(win_getid())
 
 	# Highlight the timestamps before applying notification properties. The
@@ -1304,16 +1354,8 @@ export def ShowHistory()
 	syntax match NotifyTime /^\[\d\d:\d\d:\d\d\]/
 	hi def link NotifyTime Comment
 
-	const history_winid = win_getid()
-	for l in range(len(entries))
-		const bufnr = winbufnr(history_winid)
-		const text = getbufline(bufnr, l + 1)[0]
-		prop_clear(l + 1, 1, {bufnr: bufnr})
-		AddHistoryNotificationHighlights(bufnr, l + 1, text, entries[l])
-		AddMarkedSymbolHighlights(bufnr, l + 1, text)
-		AddQuotedStringHighlights(bufnr, l + 1, text, text, range(strcharlen(text)))
-	endfor
-	setlocal readonly nomodifiable
+	history_buffers->add(bufnr())
+	RenderHistory(bufnr())
 	
 	# Press 'q' to quickly close the history buffer
     nnoremap <buffer> <silent> q :bwipeout<CR>
