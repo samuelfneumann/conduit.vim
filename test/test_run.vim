@@ -7,6 +7,13 @@ let $CONDUIT_TEST_RSYNC = tempname()
 let $CONDUIT_TEST_SCP = tempname()
 runtime plugin/conduit.vim
 
+Conduit!
+call assert_match('No previous Conduit command', execute('messages'))
+messages clear
+Conduit
+call assert_match('Usage: Conduit', execute('messages'))
+messages clear
+
 let conduit_source = join(readfile('autoload/conduit.vim'), "\n")
 call assert_match('"arg", "args"', conduit_source)
 
@@ -490,6 +497,38 @@ call writefile([], $CONDUIT_TEST_RSYNC)
 Conduit open ++nodeploy ++hidden testhost
 sleep 500m
 call assert_equal([], readfile($CONDUIT_TEST_RSYNC))
+
+" Empty bang repeats an open without treating the replay bang as ++curwin.
+Conduit run ++cwd=/tmp testhost echo repeat.c:3:1: error: replay
+sleep 500m
+Conduit!
+sleep 500m
+call assert_equal(0, getqflist({'context': 0}).context.exit_code)
+call assert_equal('repeat.c', getqflist()[0].module)
+call assert_equal(3, getqflist()[0].lnum)
+
+let repeat_windows = winnr('$')
+Conduit open ++nodeploy testhost | Conduit!
+sleep 500m
+call assert_equal(repeat_windows + 2, winnr('$'))
+let repeat_tabs = tabpagenr('$')
+tab Conduit!
+sleep 500m
+call assert_equal(repeat_tabs + 1, tabpagenr('$'))
+Conduit!
+sleep 500m
+call assert_equal(repeat_tabs + 2, tabpagenr('$'))
+vert Conduit!
+sleep 500m
+call assert_equal(2, winnr('$'))
+call assert_equal(&columns, winwidth(0) + winwidth(winnr('#')) + 1)
+let repeat_windows = winnr('$')
+Conduit! open ++nodeploy testhost
+sleep 500m
+Conduit
+Conduit!
+sleep 500m
+call assert_equal(repeat_windows, winnr('$'))
 
 if !empty(v:errors)
 	call writefile(v:errors, '/dev/stderr')
