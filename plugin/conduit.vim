@@ -34,7 +34,7 @@ def EchoDeprecated(msg: string)
 	echohl clear
 enddef
 
-command! -bang -bar -nargs=+ -complete=customlist,conduit.ConduitCompl Conduit {
+command! -bang -bar -nargs=* -complete=customlist,conduit.ConduitCompl Conduit {
 	conduit.ConduitDispatch(
 		false,
 		!empty(expand("<bang>")),

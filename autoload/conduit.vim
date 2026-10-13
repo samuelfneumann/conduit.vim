@@ -3757,6 +3757,8 @@ enddef
 
 # ── Vim Command Interface ────────────────────────────────────────────────────
 
+var last_command: dict<any> = {}
+
 # Entry point for the `:Conduit` command. `run` gets its own arg-parsing
 # (it accepts a free-form remote command, which doesn't fit the space-split
 # args every other subcommand uses) and is dispatched here before falling
@@ -3768,6 +3770,31 @@ export def ConduitDispatch(
 	raw_args: string,
 	args: list<string>,
 )
+	if empty(args)
+		if !bang
+			EchoError(['Usage: Conduit {subcommand} ... or Conduit!'])
+		elseif empty(last_command)
+			EchoError(['No previous Conduit command'])
+		else
+			ConduitDispatch(
+				last_command.deploy_only,
+				last_command.bang,
+				mods, # Only use new modifiers
+				last_command.raw_args,
+				copy(last_command.args),
+			)
+		endif
+		return
+	endif
+
+	last_command = {
+		deploy_only: deploy_only,
+		bang: bang,
+		mods: mods,
+		raw_args: raw_args,
+		args: copy(args),
+	}
+
 	if !empty(args) && args[0] ==# 'run'
 		const run_args = substitute(
 			raw_args,
