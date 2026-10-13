@@ -1326,7 +1326,7 @@ def OpenWithDefaultProgram(conn: Connection, remote_path: string)
 	var [ErrCb, OutCb, ExitCb] = GetTransferNotificationFunctions(
 		"open",  notif_suffix, () => {
 		try
-			const opener = job_start(SystemOpenCommand(local_file))
+			const opener = StartSystemOpener(local_file, remote_path)
 			if job_status(opener) !=# 'run'
 				delete(local_file)
 				Warn($'Could not open {remote_path} with the system default application')
@@ -1341,6 +1341,41 @@ def OpenWithDefaultProgram(conn: Connection, remote_path: string)
 	})
 
 	RsyncFile(conn, true, remote_path, local_file, ErrCb, OutCb, ExitCb)
+enddef
+
+def ReportViewerExit(state: dict<any>, remote_path: string)
+	# The exit callback can run before the channel has drained stderr.
+	if !state.closed || !state.exited || state.reported
+		return
+	endif
+	state.reported = true
+	if state.code != 0
+		const detail = empty(state.errors) ? '' : ': ' .. join(state.errors, ' ‹|› ')
+		notifier.Dismiss(notifier.Send(
+			$'Could not open {remote_path} with system default: {detail}',
+			{prefix: '[open]', subprefix: $'[‹×› failed (error: {state.code})]'},
+		), GetFailureTimeout())
+	endif
+enddef
+
+def StartSystemOpener(local_file: string, remote_path: string): job
+	var state: dict<any> = {errors: [], closed: false, exited: false, reported: false, code: 0}
+	return job_start(SystemOpenCommand(local_file), {
+		out_io: 'null',
+		err_mode: 'nl',
+		err_cb: (_, msg) => {
+			state.errors->add(msg)
+		},
+		close_cb: (_) => {
+			state.closed = true
+			ReportViewerExit(state, remote_path)
+		},
+		exit_cb: (_, code) => {
+			state.code = code
+			state.exited = true
+			ReportViewerExit(state, remote_path)
+		},
+	})
 enddef
 
 export def CleanupSystemOpenFiles()
