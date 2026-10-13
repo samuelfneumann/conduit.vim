@@ -40,13 +40,12 @@ If `g:conduit_overwrite_vim` is set (default), `vim` is aliased to `lvim`. Use
 :Conduit!                                                  *:Conduit-repeat*
         Repeat the last :Conduit command, including its arguments and bang.
         For example, `:Conduit open vulcan | Conduit!` opens two connections.
-        Modifiers supplied to the repeat, such as `:tab Conduit!` or
-        `:vert Conduit!`, replace the previous command's modifiers. Without
-        modifiers, the previous modifiers are reused. Reports an error if
-        no previous command exists. An empty :Conduit without a bang reports
-        usage and does not change the saved command.
+        Modifiers can be supplied to the repeat, such as `:tab Conduit!` or
+        `:vert Conduit!` -- the previous command's modifiers are never reused.
+	Reports an error if no previous command exists. An empty :Conduit
+	without a bang reports usage and does not change the saved command.
 
-        Subcommands:
+Subcommands:
 
 :Conduit open [+SHORTOPT ...] [++LONGOPT ...] [++] [user@]host[:port]
                                                             *:Conduit-open*
