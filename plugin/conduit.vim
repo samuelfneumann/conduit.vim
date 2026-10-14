@@ -91,7 +91,11 @@ augroup ConduitOpen
 	}
     autocmd BufReadCmd conduit://* {
 		setlocal buftype=nofile bufhidden=wipe noswapfile
-		call conduit.ConduitOpenCmd(false, true, '', bufname("%")[len("conduit://") : ])
+		const bname = bufname("%")[len("conduit://") : ]
+		conduit.ConduitOpenCmd(false, true, '', bname)
+		conduit.ConduitSetLastCommand(
+			false, false, null_string, $'open {bname}', ['open', bname],
+		)
 	}
     autocmd BufReadCmd conduit-file://* conduit.ConduitRemoteReadCmd()
     autocmd BufWriteCmd conduit-file://* conduit.ConduitRemoteWriteCmd()
