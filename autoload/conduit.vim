@@ -3759,6 +3759,22 @@ enddef
 
 var last_command: dict<any> = {}
 
+export def ConduitSetLastCommand(
+	deploy_only: bool,
+	bang: bool,
+	mods: string,
+	raw_args: string,
+	args: list<string>,
+)
+	last_command = {
+		deploy_only: deploy_only,
+		bang: bang,
+		mods: mods,
+		raw_args: raw_args,
+		args: copy(args),
+	}
+enddef
+
 # Entry point for the `:Conduit` command. `run` gets its own arg-parsing
 # (it accepts a free-form remote command, which doesn't fit the space-split
 # args every other subcommand uses) and is dispatched here before falling
@@ -3787,13 +3803,7 @@ export def ConduitDispatch(
 		return
 	endif
 
-	last_command = {
-		deploy_only: deploy_only,
-		bang: bang,
-		mods: mods,
-		raw_args: raw_args,
-		args: copy(args),
-	}
+	ConduitSetLastCommand(deploy_only, bang, mods, raw_args, copy(args))
 
 	if !empty(args) && args[0] ==# 'run'
 		const run_args = substitute(
