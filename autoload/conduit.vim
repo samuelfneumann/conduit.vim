@@ -2338,6 +2338,24 @@ def FilteredMenu(items: list<string>, OnSelect: func(string), header: string="")
 enddef
 
 def MultiChoicePrompt(items: list<string>, OnSelect: func(string), header: string="")
+	const terminal_buf = bufnr()
+	const resume_terminal = &buftype == 'terminal' && mode(1) == 't'
+
+	if resume_terminal
+		feedkeys("\<C-\>\<C-N>", 'nx')
+	endif
+
+	try
+		InnerMultiChoicePrompt(items, OnSelect, header)
+	finally
+		# Resume back to terminal mode, if the active buffer didn't switch
+		if resume_terminal && bufnr() == terminal_buf
+			feedkeys('i', 'n')
+		endif
+	endtry
+enddef
+
+def InnerMultiChoicePrompt(items: list<string>, OnSelect: func(string), header: string="")
     # Print the header
 	if !empty(header)
 		echohl Title
@@ -3792,10 +3810,37 @@ export def ConduitDispatch(
 		elseif empty(last_command)
 			EchoError(['No previous Conduit command'])
 		else
+			# var j = 0
+			# for arg in args
+
+			# 	const ind = match(arg, '=.*')
+			# 	var prefix = arg
+			# 	if ind < 0 | prefix = arg[0 : ind] | endif
+
+			# 	final new_args = deepcopy(last_command.args)
+			# 	var i = 0
+			# 	for old_arg in last_command.args
+
+			# 		const old_ind = match(old_arg, '=.*')
+			# 		var old_prefix = old_arg
+			# 		if old_ind < 0 | prefix = old_arg[0 : old_ind] | endif
+
+			# 		if old_prefix == prefix
+			# 			new_args[i] = args[j]
+			# 			break # This only updates the first occurrence
+			# 		endif
+			# 		++i
+			# 	endfor
+
+			# 	++j
+			# endfor
+
 			ConduitDispatch(
 				last_command.deploy_only,
 				last_command.bang,
 				mods, # Only use new modifiers
+				# args->join(' '),
+				# args,
 				last_command.raw_args,
 				copy(last_command.args),
 			)
